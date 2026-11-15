@@ -84,6 +84,25 @@ final class Rasad_Plugin {
 		Rasad_Settings::hooks();
 		Rasad_Api_Rest::hooks();
 
+		// Aggregation pipeline. Callbacks stay lazy: the process/aggregator
+		// classes load only when their hook actually fires (cron request,
+		// first beacon with a backlog, WP-CLI).
+		add_action( RASAD_CRON_HOOK, array( 'Rasad_Process_Aggregator', 'run' ), 10 );
+		add_action( RASAD_CRON_HOOK, array( 'Rasad_Process_Cleaner', 'maybe_run' ), 20 );
+		add_action( 'rasad_after_hit', array( 'Rasad_Process_Aggregator', 'maybe_spawn' ) );
+		add_filter( 'cron_schedules', array( 'Rasad_Process_Aggregator', 'cron_schedules' ) );
+
+		// Make sure the every-minute event exists (cleared on deactivation).
+		if ( function_exists( 'wp_next_scheduled' )
+			&& function_exists( 'wp_schedule_event' )
+			&& ! wp_next_scheduled( RASAD_CRON_HOOK ) ) {
+			wp_schedule_event( time() + 60, 'rasad_minute', RASAD_CRON_HOOK );
+		}
+
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			Rasad_Process_Aggregator::register_cli();
+		}
+
 		// Tiny tracker: only on the front-end, only when tracking is allowed.
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_tracker' ) );
 		add_filter( 'script_loader_tag', array( __CLASS__, 'defer_tracker' ), 10, 2 );
