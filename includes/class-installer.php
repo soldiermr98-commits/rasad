@@ -116,6 +116,11 @@ final class Rasad_Installer {
 			add_option( Rasad_Settings::OPTION, Rasad_Settings::defaults(), '', 'no' );
 		}
 
+		// Protected storage dir (buffer/, secret, settings mirror) + mirror file,
+		// so collect.php can run without touching the database.
+		Rasad_Plugin::ensure_storage();
+		Rasad_Settings::write_mirror();
+
 		update_option( self::OPTION_DB_VERSION, RASAD_DB_VERSION, 'no' );
 
 		/**

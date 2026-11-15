@@ -26,6 +26,9 @@ define( 'RASAD_DIR', plugin_dir_path( __FILE__ ) );
 define( 'RASAD_URL', plugin_dir_url( __FILE__ ) );
 define( 'RASAD_CRON_HOOK', 'rasad_aggregate' );
 
+// Hard cap for one beacon payload (bytes). t.js sends ~300-800; 4KB is headroom.
+define( 'RASAD_MAX_PAYLOAD', 4096 );
+
 /**
  * Lazily loads a single Rasad_ class file.
  *
