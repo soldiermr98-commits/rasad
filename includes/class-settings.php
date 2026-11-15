@@ -83,12 +83,160 @@ final class Rasad_Settings {
 	/**
 	 * All settings merged with defaults.
 	 *
+	 * Full WP reads the option; under SHORTINIT (collect.php) it reads the
+	 * settings mirror file so the hot path never touches the database.
+	 *
 	 * @return array<string,mixed>
 	 */
 	public static function all() {
+		if ( ! function_exists( 'get_option' ) ) {
+			return self::from_mirror();
+		}
+
 		$stored = get_option( self::OPTION, array() );
 
 		return wp_parse_args( is_array( $stored ) ? $stored : array(), self::defaults() );
+	}
+
+	/**
+	 * Settings loaded from the mirror file (with one DB fallback query when
+	 * the mirror is missing, e.g. right after an upgrade).
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function from_mirror() {
+		static $cached = null;
+
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
+		$data   = array();
+		$loaded = false;
+		$file   = Rasad_Plugin::storage_dir( 'settings.json' );
+
+		if ( is_readable( $file ) ) {
+			$raw  = @file_get_contents( $file );
+			$json = is_string( $raw ) ? json_decode( $raw, true ) : null;
+
+			if ( is_array( $json ) && isset( $json['settings'] ) && is_array( $json['settings'] ) ) {
+				$data   = $json['settings'];
+				$loaded = true;
+			}
+		}
+
+		// DB fallback only when the mirror is missing/unreadable — a mirror
+		// with an empty settings object is perfectly valid (defaults apply).
+		if ( ! $loaded ) {
+			global $wpdb;
+
+			if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'get_var' ) ) {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+				$row = $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+						self::OPTION
+					)
+				);
+
+				if ( is_string( $row ) && '' !== $row ) {
+					$stored = maybe_unserialize( $row );
+
+					if ( is_array( $stored ) ) {
+						$data = $stored;
+					}
+				}
+			}
+		}
+
+		$cached = wp_parse_args( $data, self::defaults() );
+
+		return $cached;
+	}
+
+	/**
+	 * Persists settings + site host to wp-content/uploads/rasad/settings.json
+	 * so collect.php can validate and filter without a database round-trip.
+	 *
+	 * @return bool
+	 */
+	public static function write_mirror() {
+		if ( ! Rasad_Plugin::ensure_storage() ) {
+			return false;
+		}
+
+		$payload = array(
+			'settings' => self::all(),
+			'host'     => self::current_host(),
+			'ts'       => time(),
+		);
+
+		$encoded = wp_json_encode( $payload );
+
+		if ( ! is_string( $encoded ) ) {
+			return false;
+		}
+
+		$result = @file_put_contents(
+			Rasad_Plugin::storage_dir( 'settings.json' ),
+			$encoded,
+			LOCK_EX
+		);
+
+		return false !== $result;
+	}
+
+	/**
+	 * Site hostname for collect-time Host validation.
+	 *
+	 * @return string Lowercase host without port; '' when unknown.
+	 */
+	public static function site_host() {
+		if ( function_exists( 'home_url' ) ) {
+			return (string) parse_url( home_url(), PHP_URL_HOST );
+		}
+
+		$file = Rasad_Plugin::storage_dir( 'settings.json' );
+
+		if ( is_readable( $file ) ) {
+			$raw  = @file_get_contents( $file );
+			$json = is_string( $raw ) ? json_decode( $raw, true ) : null;
+
+			if ( is_array( $json ) && ! empty( $json['host'] ) && is_string( $json['host'] ) ) {
+				return $json['host'];
+			}
+		}
+
+		global $wpdb;
+
+		if ( isset( $wpdb ) && is_object( $wpdb ) && method_exists( $wpdb, 'get_var' ) ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+			$row = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+					'siteurl'
+				)
+			);
+
+			if ( is_string( $row ) && '' !== $row ) {
+				$host = parse_url( $row, PHP_URL_HOST );
+
+				return is_string( $host ) ? $host : '';
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Raw hostname helper for write_mirror().
+	 *
+	 * @return string
+	 */
+	private static function current_host() {
+		$host = function_exists( 'home_url' ) ? parse_url( home_url(), PHP_URL_HOST ) : '';
+
+		return is_string( $host ) ? $host : '';
 	}
 
 	/**
@@ -111,6 +259,10 @@ final class Rasad_Settings {
 	public static function hooks() {
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
 		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
+
+		// Keep the collect-time mirror in sync with the option.
+		add_action( 'update_option_' . self::OPTION, array( __CLASS__, 'write_mirror' ) );
+		add_action( 'added_option_' . self::OPTION, array( __CLASS__, 'write_mirror' ) );
 	}
 
 	/**
