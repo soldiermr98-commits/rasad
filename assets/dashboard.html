@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>رصد | تحلیل هوشمند وردپرس</title>
+<link rel="stylesheet" href="admin.css"/>
+<style>
+/* Inline critical overrides for standalone demo — production uses assets/admin.css */
+.rasad-demo { max-width: 1240px; margin: 0 auto; padding: 0 1rem; }
+</style>
+</head>
+<body class="rasad-dash rasad-demo">
+
+<!-- Top Navigation Bar -->
+<header class="rasad-header">
+  <div class="rasad-header-start">
+    <div class="rasad-logo">
+      <span class="rasad-logo-text">رصد</span>
+      <span class="rasad-live-dot" title="سیستم فعال است"></span>
+    </div>
+    <div class="rasad-live-badge">
+      <span class="rasad-live-dot"></span>
+      <span>۱۲۴ کاربر آنلاین همین الان</span>
+    </div>
+    <nav class="rasad-nav">
+      <a class="rasad-nav-link is-active" href="#">پیشخوان</a>
+      <a class="rasad-nav-link" href="#">زنده</a>
+      <a class="rasad-nav-link" href="#">صفحات</a>
+      <a class="rasad-nav-link" href="#">منابع ورودی</a>
+      <a class="rasad-nav-link" href="#">مخاطبان</a>
+      <a class="rasad-nav-link" href="#">تنظیمات</a>
+    </nav>
+  </div>
+  <div class="rasad-header-end">
+    <button class="rasad-btn rasad-btn-ghost">
+      <span class="rasad-icon">compare_arrows</span> مقایسه با دوره قبل
+    </button>
+    <button class="rasad-btn rasad-btn-primary">
+      <span class="rasad-icon">download</span> خروجی گزارش
+    </button>
+    <div class="rasad-utils">
+      <button class="rasad-icon-btn" title="تقویم شمسی"><span class="rasad-icon">calendar_today</span></button>
+      <button class="rasad-icon-btn" title="حالت تاریک"><span class="rasad-icon">dark_mode</span></button>
+    </div>
+  </div>
+</header>
+
+<main class="rasad-main">
+
+<!-- Secondary Toolbar -->
+<section class="rasad-toolbar">
+  <div class="rasad-ranges">
+    <button class="rasad-range is-active" data-range="7d">۷ روز</button>
+    <button class="rasad-range" data-range="1d">امروز</button>
+    <button class="rasad-range" data-range="yesterday">دیروز</button>
+    <button class="rasad-range" data-range="30d">۳۰ روز</button>
+    <button class="rasad-range" data-range="90d">۹۰ روز</button>
+    <button class="rasad-range" data-range="custom">دلخواه</button>
+  </div>
+  <div class="rasad-custom-range">
+    <label>۷ روز اخیر: ۱۸ تا ۲۴ آبان ۱۴۰۴</label>
+    <button class="rasad-btn rasad-btn-ghost rasad-calendar">
+      <span class="rasad-icon">calendar_month</span>compare_arrows
+    </button>
+  </div>
+</section>
+
+<!-- Stat Cards -->
+<section class="rasad-cards">
+  <div class="rasad-card" data-metric="views">
+    <span class="rasad-card-label">بازدید کل</span>
+    <div class="rasad-card-row">
+      <span class="rasad-card-value">۱۸۴,۹۲۰</span>
+      <span class="rasad-card-delta is-up">▲ ۱۲.۴٪ دوره قبل</span>
+    </div>
+    <div class="rasad-spark">
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <path d="M0,22 Q15,26 30,14 T60,10 T85,16 T100,4 L100,28 L0,28 Z" fill="#00685f22"/>
+        <path d="M0,22 Q15,26 30,14 T60,10 T85,16 T100,4" fill="none" stroke="#00685f" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+  <div class="rasad-card" data-metric="visitors">
+    <span class="rasad-card-label">بازدیدکننده یکتا</span>
+    <div class="rasad-card-row">
+      <span class="rasad-card-value">۵۲,۳۱۰</span>
+      <span class="rasad-card-delta is-up">▲ ۸.۲٪ دوره قبل</span>
+    </div>
+    <div class="rasad-spark">
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <path d="M0,20 Q20,10 40,18 T75,8 T100,3 L100,28 L0,28 Z" fill="#00685f22"/>
+        <path d="M0,20 Q20,10 40,18 T75,8 T100,3" fill="none" stroke="#00685f" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+  <div class="rasad-card" data-metric="sessions">
+    <span class="rasad-card-label">نشست‌ها</span>
+    <div class="rasad-card-row">
+      <span class="rasad-card-value">۷۹,۱۴۰</span>
+      <span class="rasad-card-delta is-up">▲ ۱۵.۱٪ دوره قبل</span>
+    </div>
+    <div class="rasad-spark">
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <path d="M0,24 Q25,22 45,12 T80,14 T100,2 L100,28 L0,28 Z" fill="#00685f22"/>
+        <path d="M0,24 Q25,22 45,12 T80,14 T100,2" fill="none" stroke="#00685f" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+  <div class="rasad-card" data-metric="bounce_rate">
+    <span class="rasad-card-label">نرخ پرش</span>
+    <div class="rasad-card-row">
+      <span class="rasad-card-value">۳۴.۲٪</span>
+      <span class="rasad-card-delta is-down">▼ ۲.۸٪ دوره قبل</span>
+    </div>
+    <div class="rasad-spark">
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <path d="M0,8 Q30,12 55,20 T80,18 T100,24 L100,28 L0,28 Z" fill="#00685f22"/>
+        <path d="M0,8 Q30,12 55,20 T80,18 T100,24" fill="none" stroke="#00685f" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+  <div class="rasad-card" data-metric="avg_duration">
+    <span class="rasad-card-label">میانگین زمان ماندگاری</span>
+    <div class="rasad-card-row">
+      <span class="rasad-card-value">۲:۱۸</span>
+      <span class="rasad-card-delta is-up">▲ ۱۸ ثانیه دوره قبل</span>
+    </div>
+    <div class="rasad-spark">
+      <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+        <path d="M0,18 Q20,24 45,15 T75,9 T100,4 L100,28 L0,28 Z" fill="#00685f22"/>
+        <path d="M0,18 Q20,24 45,15 T75,9 T100,4" fill="none" stroke="#00685f" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- Time Series Chart -->
+<section class="rasad-panel rasad-chart-section">
+  <div class="rasad-chart-head">
+    <div>
+      <h2 class="rasad-chart-title">روند بازدید و کاربران یکتا</h2>
+      <p class="rasad-chart-sub">تفکیک روزانه ترافیک ورودی در مقایسه با هفته ماقبل</p>
+    </div>
+    <div class="rasad-chart-ctrl">
+      <div class="rasad-legend">
+        <span class="rasad-legend-dot" style="background:#00685f"></span><span>دوره فعلی</span>
+        <span class="rasad-legend-dot" style="background:#6b38d4;border-top:1px dashed #6b38d4"></span><span>دوره قبل</span>
+      </div>
+      <div class="rasad-granularity">
+        <button class="rasad-chip">ساعتی</button>
+        <button class="rasad-chip is-active">روزانه</button>
+      </div>
+    </div>
+  </div>
+  <div class="rasad-chart-wrap">
+    <svg class="rasad-chart-svg" viewBox="0 0 700 180" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="gradMain" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#00685f" stop-opacity="0.22"/>
+          <stop offset="100%" stop-color="#00685f" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="gradPrev" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#6b38d4" stop-opacity="0.08"/>
+          <stop offset="100%" stop-color="#6b38d4" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d="M0,130 C100,140 130,95 233,110 C336,125 380,80 466,75 C552,70 600,105 700,90 L700,180 L0,180 Z" fill="url(#gradPrev)"/>
+      <path d="M0,130 C100,140 130,95 233,110 C336,125 380,80 466,75 C552,70 600,105 700,90" fill="none" stroke="#6b38d4" stroke-dasharray="4,4" stroke-width="2" stroke-linecap="round"/>
+      <path d="M0,115 C100,110 130,60 233,52 C336,44 380,30 466,42 C552,54 600,20 700,15 L700,180 L0,180 Z" fill="url(#gradMain)"/>
+      <path d="M0,115 C100,110 130,60 233,52 C336,44 380,30 466,42 C552,54 600,20 700,15" fill="none" stroke="#00685f" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="350" y1="0" x2="350" y2="180" stroke="#00685f" stroke-dasharray="2,2" stroke-width="1.2" opacity="0.6"/>
+      <circle cx="350" cy="36" r="4.5" fill="#00685f" stroke="#ffffff" stroke-width="2.5"/>
+      <circle cx="350" cy="98" r="3.5" fill="#6b38d4" stroke="#ffffff" stroke-width="2"/>
+    </svg>
+    <div class="rasad-tooltip">
+      <div class="rasad-tt-head">سه‌شنبه ۲۱ آبان ۱۴۰۴ <span class="rasad-tt-dot"></span></div>
+      <div class="rasad-tt-row"><span class="rasad-tt-dot" style="background:#00685f"></span><span>بازدید فعلی:</span><span class="rasad-tt-val">۲۸,۴۵۰</span></div>
+      <div class="rasad-tt-row"><span class="rasad-tt-dot" style="background:#6b38d4"></span><span>دوره قبل:</span><span class="rasad-tt-val">۲۵,۲۵۰</span></div>
+      <div class="rasad-tt-foot">۳,۲۰۰+ نسبت به دوره قبل (۱۲.۶٪+) <span class="rasad-icon">trending_up</span></div>
+    </div>
+    <div class="rasad-xaxis">
+      <span>شنبه ۱۸ آبان</span><span>یکشنبه ۱۹ آبان</span><span>دوشنبه ۲۰ آبان</span><span class="is-active">سه‌شنبه ۲۱ آبان</span><span>چهارشنبه ۲۲ آبان</span><span>پنج‌شنبه ۲۳ آبان</span><span>جمعه ۲۴ آبان</span>
+    </div>
+  </div>
+</section>
+
+<!-- Breakdown Panels -->
+<section class="rasad-panels">
+
+  <!-- Top Pages -->
+  <div class="rasad-panel">
+    <div class="rasad-panel-head">
+      <div class="rasad-panel-icon">📄</div>
+      <h3 class="rasad-panel-title">صفحات پربازدید</h3>
+      <a class="rasad-view-all" href="#">مشاهده همه <span class="rasad-icon">chevron_left</span></a>
+    </div>
+    <div class="rasad-list">
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:35%"></div><span class="rasad-list-path">/blog/seo-guide</span><span class="rasad-list-val">۴۲,۱۵۰ <span class="rasad-list-pct">۳۵٪</span></span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:26%"></div><span class="rasad-list-path">/shop/wireless-headphones</span><span class="rasad-list-val">۳۱,۲۰۰ <span class="rasad-list-pct">۲۶٪</span></span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:15%"></div><span class="rasad-list-path">/about-us</span><span class="rasad-list-val">۱۸,۴۰۰ <span class="rasad-list-pct">۱۵٪</span></span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:10%"></div><span class="rasad-list-path">/pricing</span><span class="rasad-list-val">۱۲,۱۰۰ <span class="rasad-list-pct">۱۰٪</span></span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:7%"></div><span class="rasad-list-path">/contact</span><span class="rasad-list-val">۸,۳۰۰ <span class="rasad-list-pct">۷٪</span></span></div>
+    </div>
+  </div>
+
+  <!-- Referrers -->
+  <div class="rasad-panel">
+    <div class="rasad-panel-head">
+      <div class="rasad-panel-icon">🔗</div>
+      <h3 class="rasad-panel-title">منابع ورودی</h3>
+      <span class="rasad-panel-sub">بر اساس نشست</span>
+    </div>
+    <div class="rasad-list">
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:62%"></div><span class="rasad-list-avatar">G</span><span class="rasad-list-path">گوگل ارگانیک (Google)</span><span class="rasad-list-val">۶۲٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:18%"></div><span class="rasad-list-icon">🔗</span><span class="rasad-list-path">مستقیم (Direct)</span><span class="rasad-list-val">۱۸٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:9%"></div><span class="rasad-list-icon">✈️</span><span class="rasad-list-path">تلگرام (Telegram)</span><span class="rasad-list-val">۹٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:6%"></div><span class="rasad-list-icon">📷</span><span class="rasad-list-path">اینستاگرام (Instagram)</span><span class="rasad-list-val">۶٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:5%"></div><span class="rasad-list-avatar" style="background:#000;color:#fff">𝕏</span><span class="rasad-list-path">توییتر / ایکس (Twitter)</span><span class="rasad-list-val">۵٪</span></div>
+    </div>
+  </div>
+
+  <!-- Geo -->
+  <div class="rasad-panel">
+    <div class="rasad-panel-head">
+      <div class="rasad-panel-icon">🌍</div>
+      <h3 class="rasad-panel-title">کشورها و شهرها</h3>
+      <span class="rasad-panel-sub">شهرهای پیشرو</span>
+    </div>
+    <div class="rasad-list">
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:84%"></div><span class="rasad-list-flag">🇮🇷</span><span class="rasad-list-path">ایران (تهران، اصفهان، مشهد)</span><span class="rasad-list-val">۸۴٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:6%"></div><span class="rasad-list-flag">🇩🇪</span><span class="rasad-list-path">آلمان (فرانکفورت)</span><span class="rasad-list-val">۶٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:4%"></div><span class="rasad-list-flag">🇨🇦</span><span class="rasad-list-path">کانادا (تورنتو)</span><span class="rasad-list-val">۴٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:3%"></div><span class="rasad-list-flag">🇦🇪</span><span class="rasad-list-path">امارات متحده (دبی)</span><span class="rasad-list-val">۳٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:3%"></div><span class="rasad-list-flag">🇳🇱</span><span class="rasad-list-path">هلند (آمستردام)</span><span class="rasad-list-val">۳٪</span></div>
+    </div>
+  </div>
+
+  <!-- Devices -->
+  <div class="rasad-panel">
+    <div class="rasad-panel-head">
+      <div class="rasad-panel-icon">📱</div>
+      <h3 class="rasad-panel-title">دستگاه‌های کاربران</h3>
+      <span class="rasad-panel-sub">تفکیک ابزار</span>
+    </div>
+    <div class="rasad-seg">
+      <div class="rasad-seg-bar" style="--w:68%" title="موبایل: ۶۸٪"></div>
+      <div class="rasad-seg-bar" style="--w:28%;background:#e2e7ff" title="دسکتاپ: ۲۸٪"></div>
+      <div class="rasad-seg-bar" style="--w:4%;background:#dae2fd" title="تبلت: ۴٪"></div>
+    </div>
+    <div class="rasad-list">
+      <div class="rasad-list-row"><span class="rasad-list-dot" style="background:#00685f"></span><span class="rasad-list-icon">📱</span><span class="rasad-list-path">موبایل (Mobile)</span><span class="rasad-list-val">۶۸٪</span></div>
+      <div class="rasad-list-row"><span class="rasad-list-dot" style="background:#6b38d4"></span><span class="rasad-list-icon">💻</span><span class="rasad-list-path">دسکتاپ (Desktop)</span><span class="rasad-list-val">۲۸٪</span></div>
+      <div class="rasad-list-row"><span class="rasad-list-dot" style="background:#bcc9c6"></span><span class="rasad-list-icon">📟</span><span class="rasad-list-path">تبلت (Tablet)</span><span class="rasad-list-val">۴٪</span></div>
+    </div>
+  </div>
+
+  <!-- Browsers -->
+  <div class="rasad-panel">
+    <div class="rasad-panel-head">
+      <div class="rasad-panel-icon">🌐</div>
+      <h3 class="rasad-panel-title">مرورگرها</h3>
+      <span class="rasad-panel-sub">نسخه‌های وب</span>
+    </div>
+    <div class="rasad-list">
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:64%"></div><span class="rasad-list-icon">🌐</span><span class="rasad-list-path">گوگل کروم (Chrome)</span><span class="rasad-list-val">۶۴٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:22%"></div><span class="rasad-list-icon">🧭</span><span class="rasad-list-path">سافاری (Safari)</span><span class="rasad-list-val">۲۲٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:9%"></div><span class="rasad-list-icon">🦊</span><span class="rasad-list-path">فایرفاکس (Firefox)</span><span class="rasad-list-val">۹٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:5%"></div><span class="rasad-list-icon">🌐</span><span class="rasad-list-path">مایکروسافت اج (Edge)</span><span class="rasad-list-val">۵٪</span></div>
+    </div>
+  </div>
+
+  <!-- OS -->
+  <div class="rasad-panel">
+    <div class="rasad-panel-head">
+      <div class="rasad-panel-icon">💻</div>
+      <h3 class="rasad-panel-title">سیستم‌عامل‌ها</h3>
+      <span class="rasad-panel-sub">محیط کاربر</span>
+    </div>
+    <div class="rasad-list">
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:52%"></div><span class="rasad-list-icon">🤖</span><span class="rasad-list-path">اندروید (Android)</span><span class="rasad-list-val">۵۲٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:24%"></div><span class="rasad-list-icon">🪟</span><span class="rasad-list-path">ویندوز (Windows)</span><span class="rasad-list-val">۲۴٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:18%"></div><span class="rasad-list-icon">📱</span><span class="rasad-list-path">آی‌او‌اس (iOS)</span><span class="rasad-list-val">۱۸٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:5%"></div><span class="rasad-list-icon">🍎</span><span class="rasad-list-path">مک‌او‌اس (macOS)</span><span class="rasad-list-val">۵٪</span></div>
+      <div class="rasad-list-row"><div class="rasad-bar" style="--w:1%"></div><span class="rasad-list-icon">🐧</span><span class="rasad-list-path">لینوکس (Linux)</span><span class="rasad-list-val">۱٪</span></div>
+    </div>
+  </div>
+
+</section>
+
+<!-- Footer -->
+<footer class="rasad-footer">
+  <div class="rasad-footer-left">
+    <span class="rasad-dot"></span>
+    <span>سامانه آمارگیر رصد نسخه ۲.۴.۰ فعال است (همگام‌سازی بدون کوکی، کاملاً مطابق حریم خصوصی)</span>
+  </div>
+  <div class="rasad-footer-right">
+    <a href="#">مستندات API</a>
+    <a href="#">گزارش وضعیت سرور</a>
+    <a href="#">پشتیبانی</a>
+  </div>
+</footer>
+
+</main>
+<script>
+/* Rasad dashboard demo — vanilla JS, zero dependencies, no external requests. */
+(function () {
+  'use strict';
+
+  // Persian numeral formatter
+  var nf = new Intl.NumberFormat('fa-IR');
+  function num(n) { return nf.format(Number(n) || 0); }
+
+  // Range button switching
+  var rangeBtns = document.querySelectorAll('.rasad-range');
+  rangeBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      rangeBtns.forEach(function (b) { b.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+    });
+  });
+
+  // Granularity chip switching
+  var chips = document.querySelectorAll('.rasad-chip');
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chips.forEach(function (c) { c.classList.remove('is-active'); });
+      chip.classList.add('is-active');
+    });
+  });
+
+  // Tooltip hover on chart line
+  var svg = document.querySelector('.rasad-chart-svg');
+  var tooltip = document.querySelector('.rasad-tooltip');
+  var path = svg && svg.querySelector('path[stroke="#00685f"]');
+  if (svg && tooltip && path) {
+    var rect = svg.getBoundingClientRect();
+    var totalLength = path.getTotalLength ? path.getTotalLength() : 700;
+    svg.addEventListener('mousemove', function (e) {
+      var x = e.clientX - rect.left;
+      var clamp = Math.max(0, Math.min(rect.width, x));
+      var pct = clamp / rect.width;
+      var point = path.getPointAtLength ? path.getPointAtLength(pct * totalLength) : { x: clamp, y: 100 };
+      tooltip.style.left = (clamp + 8) + 'px';
+      tooltip.style.top = (point.y - 10) + 'px';
+      tooltip.style.transform = 'none';
+      tooltip.style.opacity = '1';
+      tooltip.querySelector('.rasad-tt-val').textContent = num(Math.floor(28000 + Math.sin(pct * 6) * 3000));
+    });
+    svg.addEventListener('mouseleave', function () {
+      tooltip.style.opacity = '0';
+    });
+  }
+
+  // Calendar button toggle
+  var cal = document.querySelector('.rasad-calendar');
+  if (cal) {
+    cal.addEventListener('click', function () {
+      alert('تقویم شمسی به طور داخلی (در فایل admin.js تولید می‌شود)');
+    });
+  }
+})();
+</script>
+</body>
+</html>
