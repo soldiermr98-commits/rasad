@@ -99,6 +99,9 @@ final class Rasad_Plugin {
 		// Post views column (Phase 7) — shown in posts/pages list tables.
 		add_action( 'plugins_loaded', array( 'Rasad_Admin_Post_Column', 'hooks' ), 10 );
 
+		// WooCommerce integration (Phase 8) — lazy-loaded only when WC is active.
+		add_action( 'plugins_loaded', array( 'Rasad_Integrations_WooCommerce', 'hooks' ), 11 );
+
 		// Aggregation pipeline. Callbacks stay lazy: the process/aggregator
 		// classes load only when their hook actually fires (cron request,
 		// first beacon with a backlog, WP-CLI).

@@ -2,54 +2,107 @@
 
 رصد — آمار بازدیدکنندگان بسیار سبک، کاملاً محلی و بدون کوکی برای وردپرس.
 
-## Transient storage & privacy
+## نصب
 
-Rasad keeps raw IP addresses out of every persistent store. What is held
-transiently (in memory or short-lived files) and what is never written:
+1. افزونه را از مخزن وردپرس یا فایل ZIP نصب و فعال کنید.
+2. از منوی مدیریت، به **رصد > تنظیمات** بروید و تنظیمات مورد نظر را بررسی کنید.
+3. جمع‌آوری خودکار از طریق کرون وردپرس هر دقیقه اجرا می‌شود.
+4. داشبورد را در **رصد > داشبورد** یا ویجت داشبورد وردپرس مشاهده کنید.
 
-### Visitor key (persistent-ish, but irreversible)
+## ذخیره‌سازی موقت و حریم خصوصی
+
+Rasad آدرس IP خام را در هیچ ذخیره پایدار نگه نمی‌دارد. آنچه موقتاً در حافظه یا فایل‌های کوتاه‌مدت نگهداری می‌شود و آنچه هرگز نوشته نمی‌شود:
+
+### کلید بازدیدکننده (دائمی-ish، اما قابل بازگشت نیست)
 
 - `key = substr( HMAC-SHA256( ip + UA + day + secret, secret ), 0, 16 )`
-- The secret lives in `wp-content/uploads/rasad/secret.key` (file, 0600) and
-  rotates its daily component every day.
-- The raw IP and full UA are **never** stored — only the 16-char hex key.
+- رمز در `wp-content/uploads/rasad/secret.key` (فایل، 0600) نگهداری می‌شود و مؤلفه روزانه هر روز rotates می‌شود.
+- آدرس IP خام و UA کامل **هرگز** ذخیره نمی‌شوند — تنها کلید ۱۶ کاراکتری هگز معکوس ناپذیر.
 
-### Buffer line (transient, purged immediately after aggregation)
+### خط بافر (موقت، بلافاصله بعد از جمع‌آوری پاک می‌شود)
 
-One JSON line per hit lives in `wp-content/uploads/rasad/buffer/hits-Ymd.jsonl`
-until the aggregator consumes it (`pop_batch` removes processed lines and
-deletes empty files). The line contains:
+یک خط JSON برای هر بازدید در `wp-content/uploads/rasad/buffer/hits-Ymd.jsonl` تا زمانی که جمع‌آورنده آن را مصرف کند (`pop_batch` خطوط پردازش‌شده را حذف می‌کند و فایل‌های خالی را می‌رد). خط شامل:
 
-| field | stored? | notes |
+| فیلد | ذخیره‌شده؟ | توضیحات |
 |---|---|---|
-| `ip` | **anonymized** | Last IPv4 octet zeroed / last 80 IPv6 bits zeroed (setting `ip_anonymize`, on by default). GeoIP country/city still works from the prefix. |
-| `ua` | yes | Raw UA, disappears with the buffer file; never written to any DB table. |
-| `p`, `t`, `r`, UTM, `w`, `l`, `tz` | yes | Page path, title, referrer, screen, language, timezone. Query-string is whitelisted (see below). |
-| `vk` | yes | 16-hex visitor key (irreversible hash). |
+| `ip` | ناشناس‌سازی شده | آخرین بخش IPv4 صفر شده / آخرین ۸۰ بیت IPv6 صفر شده (تنظیم `ip_anonymize`, به صورت پیش‌فرض فعال). کشور/شهر GeoIP همچنان از پیشوند کار می‌کند. |
+| `ua` | بله | UA خام، حذف می‌شود با فایل بافر؛ هرگز در هیچ جدول DB نوشته نمی‌شود. |
+| `p`, `t`, `r`, UTM, `w`, `l`, `tz` | بله | مسیر صفحه، عنوان، ارجاع، صفحه، زبان، منطقه زمانی. |
+| `vk` | بله | کلید بازدیدکننده ۱۶-هگز (هش معکوس ناپذیر). |
 
-### Query-string policy
+### سیاست رشته پرس‌وجو
 
-The sanitizer keeps **only** the hard whitelist
-`s, paged, page_id, p, cat, tag, post_type, product_cat` plus an
-admin-editable extra whitelist. Everything else (`fbclid`, `gclid`, `key`,
-`login`, `token`, order keys, …) is dropped. Fragments are stripped. Distinct
-new page paths are capped per day and per hour; overflow collapses to
-`/other`.
+پاکسازی تنها لیست سفید سخت [`s`, `paged`, `page_id`, `p`, `cat`, `tag`, `post_type`, `product_cat`] را می‌نگه دارد plus لیست سفید extra قابل تنظیم توسط مدیریت. همه چیز دیگر (`fbclid`, `gclid`, `key`, `login`, `token`, کلید سفارش، …) حذف می‌شود. تکه‌ها strip می‌شوند. مسیرهای جدید capped می‌شوند در هر روز و هر ساعت; עודף به `/other` جمع می‌شود.
 
-### Rate-limit buckets (transient)
+### safe rate limit (حد نرخ از reused bucket)
 
-One small JSON file per minute under `buffer/rate/` enforces 120 hits per
-visitor per minute. Buckets older than 10 minutes are pruned opportunistically
-and by the cleaner.
+یک فایل کوچک JSON برای هر دقیقه تحت `buffer/rate/` ۱۲۰ بازدید در هر دقیقه برای هر بازدیدکننده اجرا می‌شود. bucketهای قدیمی‌تر از ۱۰ دقیقه به صورت فرصت‌ای و توسط پاکسازی حذف می‌شوند.
 
-### Settings mirror
+### آینه تنظیمات
 
-`wp-content/uploads/rasad/settings.json` mirrors the admin option so
-`collect.php` (SHORTINIT) can validate and filter without touching the
-database. It contains settings + site host + timestamp — no hit data.
+`wp-content/uploads/rasad/settings.json` آینه از تنظیمات مدیریت است تا `collect.php` (SHORTINIT) بتواند اعتبارسنجی و فیلتر را بدون لمس پایگاه داده انجام دهد. شامل تنظیمات + میزبان سایت + timestamp است — هیچ داده بازدید.
 
-### Health-check panel
+### پنل سلامت (Health check)
 
-The settings screen shows: buffer driver in use, buffer backlog size, IP
-source setting, trusted proxies, trusted hosts, and the last aggregation
-cron time.
+صفحه تنظیمات نشان می‌دهد: درایور بافر در استفاده، اندازه بافر، منبع IP، پروکسی‌های معتبر، میزبان‌های مجاز، و آخرین زمان کرون جمع‌آوری.
+
+## RAPI (REST)
+
+Rasad یک نقطه پایانی REST در `/wp-json/rasad/v1/hit` فراهم می‌کند به عنوان جایگزین برای `collect.php` وقتی endpoints SHORTINIT امکان پذیر نیست. هر دو را پیاده می‌شود و-tracker از همانی که کار می‌کند استفاده می‌کند (تنظیمات + self-test).
+
+## یکپارچ‌سازی فروشگاه (WooCommerce) — اختیاری
+
+هنگام فعال بودن WooCommerce، Rasad رویدادهای التجارة الکترونیکی را می‌پردازد بدون هزینه اضافی وقتی WooCommerce غیرفعال است:
+
+| رویداد | کد | descripción |
+|---|---|---|
+| نمایش محصول | ۳ | بازدید از صفحه یک محصول |
+| افزودن به سبد | ۴ | افزودن محصول به سبد خرید |
+| شروع پرداخت | ۵ | شروع فرآیند پرداخت |
+| خرید | ۶ | تکمیل سفارش (تایید پرداخت) |
+
+رویدادها در جدول `rsd_events` ذخیره می‌شوند (id, day, type, page_id, value) و در داشبورد رصد قابل نمایش هستند. مبلغ (value) برای رویدادهای خرید و افزودن به سبد قیمت محصول/کل سفارش است.
+
+### راه‌اندازی
+
+هیچ تنظیم اضافی لازم نیست. وقتی WooCommerce فعال باشد، رصد به صورت خودکار هوک‌های مربوطه را ثبت می‌کند.
+
+## تست‌ها
+
+تست‌های خودکار در پوشه `tests/` وجودند:
+
+| فایل | توصیف |
+|---|---|
+| `test-ua-parser.php` | تشخیص مرورگر، سیستم عامل، دستگاه |
+| `test-referrer.php` | درگیری ارجاع‌دهنده (سرچ، اجتماعی، کمپین، جستجوی داخلی) |
+| `test-jalali.php` | تبدیل میلادی↔جلالی و leap year |
+| `test-buffer.php` | درایورهای بافر (فایل/APCu/Redis/DB) |
+| `test-aggregator.php` | ریاضیات جمع‌آورنده (نرخ پرش، مدت، بازدیدکنندگان یکتا) |
+
+اجرای تمام تست‌ها:
+
+```bash
+php tests/run-tests.php
+```
+
+##Performance notes (جداول عملکرد)
+
+| هدف | چگونه برآورد می‌شود |
+|---|---|
+| کمتر از ۱ کیلوبیت tracker | `assets/t.js` حدود ۹۰۰ بایت، بدون کوکی، بدون بارگذاری CDN |
+| جمع‌آوری سریع | `collect.php` با SHORTINIT بارگذاری می‌شود، همیشه ۲۰۴ برمی‌گرداند |
+| یک‌باره نوشتن رویدادهای ووکامرس | رویدادها در `rsd_events` یک‌بار نوشته می‌شوند و هرگز بازمحاسبه نمی‌شوند |
+| پاکسازی خودکار | بافر و hits بعد از aggregation پاک می‌شوند; cron هر دقیقه اجرا می‌شود |
+|無 اضافی بدون WooCommerce | کل کلاس WooCommerce فقط وقتی `WC()` وجود دارد لود می‌شود |
+
+## internationalen (i18n)
+
+تمام رشته‌های دیده شده کاربر با `__( '...', 'rasad' )` محصور شده‌اند. فایل `.ot` در `languages/rasad.pot` برای ترجمه وجود دارد.
+
+## مجوز
+
+GPLv2+
+
+## نویسنده
+
+Rasad Team
