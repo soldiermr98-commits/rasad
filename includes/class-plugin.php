@@ -108,11 +108,14 @@ final class Rasad_Plugin {
 			wp_schedule_event( time() + 60, 'rasad_minute', RASAD_CRON_HOOK );
 		}
 
-		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			Rasad_Process_Aggregator::register_cli();
-		}
+	if ( defined( 'WP_CLI' ) && WP_CLI ) {
+		Rasad_Process_Aggregator::register_cli();
+	}
 
-		// Tiny tracker: only on the front-end, only when tracking is allowed.
+	// Health check: mark last aggregation time when aggregation completes.
+	add_action( 'rasad_aggregated', array( 'Rasad_Process_Health', 'mark_aggregated' ) );
+
+	// Tiny tracker: only on the front-end, only when tracking is allowed.
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_tracker' ) );
 		add_filter( 'script_loader_tag', array( __CLASS__, 'defer_tracker' ), 10, 2 );
 
