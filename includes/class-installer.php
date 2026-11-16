@@ -103,6 +103,114 @@ final class Rasad_Installer {
 	}
 
 	/**
+	 * Rewrites/creates the collect.php bootstrap files when missing or
+	 * stale (site moved, plugin re-uploaded). Cheap: no-ops when the
+	 * stored content already matches.
+	 *
+	 * Hooked on admin_init so existing installs pick the files up without
+	 * a reactivation; activation writes them directly via install().
+	 *
+	 * @return void
+	 */
+	public static function ensure_bootstrap_files() {
+		if ( function_exists( 'is_admin' ) && ! is_admin() ) {
+			return;
+		}
+
+		self::write_wp_load_hint();
+		self::ensure_selftest_key();
+	}
+
+	/**
+	 * Writes wp-load-path.php — the absolute wp-load.php path collect.php
+	 * tries first (falls back to an upward search when absent/stale).
+	 *
+	 * @return bool True when the file is present and current.
+	 */
+	private static function write_wp_load_hint() {
+		$target  = RASAD_DIR . 'wp-load-path.php';
+		$wp_load = rtrim( (string) ABSPATH, '/\\' ) . '/wp-load.php';
+
+		if ( ! is_readable( $wp_load ) ) {
+			return false;
+		}
+
+		$content = "<?php\n"
+			. "// Written by Rasad on activation — absolute path of wp-load.php for collect.php.\n"
+			. "// Safe to delete: collect.php falls back to searching upward from this folder.\n"
+			. 'return ' . var_export( $wp_load, true ) . ";\n";
+
+		$existing = @file_get_contents( $target );
+
+		if ( is_string( $existing ) && $existing === $content ) {
+			return true;
+		}
+
+		if ( false === @file_put_contents( $target, $content, LOCK_EX ) ) {
+			return false;
+		}
+
+		@chmod( $target, 0644 );
+
+		return true;
+	}
+
+	/**
+	 * Writes selftest-key.php — a random secret granting the
+	 * X-Rasad-Status diagnostic header when sent as ?rasad_test= or
+	 * X-Rasad-Test-Key. The file only `return`s the key, so a direct web
+	 * request to it outputs nothing.
+	 *
+	 * @return bool True when the key file exists.
+	 */
+	public static function ensure_selftest_key() {
+		$target = RASAD_DIR . 'selftest-key.php';
+
+		if ( is_readable( $target ) ) {
+			return true;
+		}
+
+		try {
+			$key = bin2hex( random_bytes( 32 ) );
+		} catch ( Throwable $e ) {
+			$key = sha1( uniqid( (string) mt_rand(), true ) );
+		}
+
+		$content = "<?php\n"
+			. "// Written by Rasad on activation — self-test key for X-Rasad-Status diagnostics.\n"
+			. '// Send it as ?rasad_test=<key> or X-Rasad-Test-Key: <key>.' . "\n"
+			. "return '" . $key . "';\n";
+
+		if ( false === @file_put_contents( $target, $content, LOCK_EX ) ) {
+			return false;
+		}
+
+		@chmod( $target, 0600 );
+
+		return true;
+	}
+
+	/**
+	 * Ensures the plugin data/ folder exists and is deny-protected
+	 * (GeoIP databases live there).
+	 *
+	 * @return bool True when the directory exists.
+	 */
+	private static function prepare_data_dir() {
+		$dir = RASAD_DIR . 'data';
+
+		if ( ! is_dir( $dir ) ) {
+			@mkdir( $dir, 0755, true );
+		}
+
+		if ( is_dir( $dir ) ) {
+			Rasad_Plugin::protect_dir( $dir . '/' );
+		}
+
+		return is_dir( $dir );
+	}
+
+	/**
 	 * Full install for the current site: tables + default settings + version flag.
 	 *
 	 * @return void
@@ -120,6 +228,13 @@ final class Rasad_Installer {
 		// so collect.php can run without touching the database.
 		Rasad_Plugin::ensure_storage();
 		Rasad_Settings::write_mirror();
+
+		// collect.php bootstrap pointers: resolved wp-load path + self-test key.
+		self::write_wp_load_hint();
+		self::ensure_selftest_key();
+
+		// GeoIP database folder (deny-all .htaccess + index.php, idempotent).
+		self::prepare_data_dir();
 
 		update_option( self::OPTION_DB_VERSION, RASAD_DB_VERSION, 'no' );
 
@@ -345,6 +460,10 @@ final class Rasad_Installer {
 		delete_option( Rasad_Settings::OPTION );
 		delete_option( self::OPTION_DB_VERSION );
 		wp_clear_scheduled_hook( RASAD_CRON_HOOK );
+
+		// collect.php bootstrap pointers belong to the install, not the data.
+		@unlink( RASAD_DIR . 'wp-load-path.php' );
+		@unlink( RASAD_DIR . 'selftest-key.php' );
 
 		$uploads = wp_upload_dir();
 		if ( empty( $uploads['error'] ) ) {

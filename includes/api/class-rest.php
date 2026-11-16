@@ -105,6 +105,11 @@ final class Rasad_Api_Rest {
 			$route['callback']     = array( __CLASS__, 'handle_' . $slug );
 			register_rest_route( self::NS, '/' . $slug, array( $route ) );
 		}
+
+		// Live panel (Phase 5): uncached, capability-gated.
+		$live                 = $dashboard;
+		$live['callback']     = array( 'Rasad_Api_Live', 'handle' );
+		register_rest_route( self::NS, '/live', array( $live ) );
 	}
 
 	/*
@@ -131,9 +136,15 @@ final class Rasad_Api_Rest {
 			}
 		}
 
-		$code = Rasad_Collect_Request::process( $raw );
+		$code     = Rasad_Collect_Request::process( $raw );
+		$response = new WP_REST_Response( null, $code );
 
-		return new WP_REST_Response( null, $code );
+		// Diagnostic header: only with WP_DEBUG or a valid self-test key.
+		if ( Rasad_Collect_Request::diag_requested() ) {
+			$response->header( 'X-Rasad-Status', Rasad_Collect_Request::last_status() );
+		}
+
+		return $response;
 	}
 
 	/**

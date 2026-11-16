@@ -302,6 +302,127 @@
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Live tab (Phase 5): 15s polling, visibility-aware, backoff on errors */
+	/* ------------------------------------------------------------------ */
+
+	var live = {
+		active: false,
+		timer: null,
+		errors: 0,
+		delay: 15000
+	};
+
+	function renderLive(data) {
+		var countEl = qs('.rasad-live-count');
+		if (countEl) {
+			countEl.textContent = num(data.online || 0);
+		}
+
+		fillTable('live', data.visitors || [], [
+			{ render: function (row) { return '<span class="rasad-vk">' + esc(String(row.id || '').slice(0, 8)) + '\u2026</span>'; } },
+			{ render: function (row) { return esc(row.page || '\u2014'); }, title: function (row) { return row.page || ''; } },
+			{ render: function (row) { return esc(row.country || '\u2014'); } },
+			{ render: function (row) { return esc(row.device || '\u2014'); } },
+			{ render: function (row) { return esc(row.referrer || STR.direct || '\u2014'); } },
+			{ render: function (row) { return num(row.pageviews); } }
+		]);
+
+		feedRows(data.feed || []);
+	}
+
+	function feedRows(rows) {
+		fillTable('feed', rows, [
+			{ render: function (row) { return esc(row.time || ''); } },
+			{ render: function (row) { return esc(row.page || ''); }, title: function (row) { return row.page || ''; } },
+			{ render: function (row) { return '<span class="rasad-vk">' + esc(String(row.id || '').slice(0, 8)) + '\u2026</span>'; } },
+			{ render: function (row) { return esc(row.country || '\u2014'); } },
+			{ render: function (row) { return esc(row.referrer || STR.direct || '\u2014'); } }
+		]);
+	}
+
+	function liveStatus(message, isError) {
+		var el = qs('.rasad-live-error');
+		if (!el) {
+			return;
+		}
+		el.textContent = message || '';
+		el.className = 'rasad-live-error' + (isError ? ' is-error' : '');
+	}
+
+	function liveSchedule(ms) {
+		clearTimeout(live.timer);
+		live.timer = setTimeout(livePoll, ms);
+	}
+
+	function livePoll() {
+		if (!live.active) {
+			return;
+		}
+		// Never poll in a background tab; visibilitychange restarts us.
+		if (document.visibilityState === 'hidden') {
+			clearTimeout(live.timer);
+			return;
+		}
+		api('live').then(function (data) {
+			live.errors = 0;
+			live.delay = 15000;
+			renderLive(data || {});
+			liveStatus('');
+			liveSchedule(15000);
+		}).catch(function () {
+			live.errors += 1;
+			// Exponential backoff: 30s, 60s, 60s… (capped).
+			live.delay = Math.min(15000 * Math.pow(2, live.errors), 60000);
+			liveStatus(STR.error || '', live.errors > 1);
+			liveSchedule(live.delay);
+		});
+	}
+
+	function startLive() {
+		if (live.active) {
+			return;
+		}
+		live.active = true;
+		live.errors = 0;
+		livePoll();
+	}
+
+	function stopLive() {
+		live.active = false;
+		clearTimeout(live.timer);
+	}
+
+	function setTab(name) {
+		qsa('.rasad-tab').forEach(function (tab) {
+			var on = tab.getAttribute('data-rasad-tab') === name;
+			tab.classList.toggle('is-active', on);
+			tab.setAttribute('aria-selected', on ? 'true' : 'false');
+		});
+		qsa('[data-rasad-panel]').forEach(function (panel) {
+			panel.hidden = panel.getAttribute('data-rasad-panel') !== name;
+		});
+
+		if (name === 'live') {
+			startLive();
+		} else {
+			stopLive();
+		}
+	}
+
+	document.addEventListener('visibilitychange', function () {
+		if (!live.active) {
+			return;
+		}
+		if (document.visibilityState === 'visible') {
+			live.errors = 0;
+			live.delay = 15000;
+			livePoll();
+		} else {
+			clearTimeout(live.timer);
+		}
+	});
+
+	/* ------------------------------------------------------------------ */
 	/* Load pipeline                                                       */
 	/* ------------------------------------------------------------------ */
 
@@ -377,6 +498,12 @@
 		if (!REST) {
 			return;
 		}
+
+		qsa('.rasad-tab').forEach(function (tab) {
+			tab.addEventListener('click', function () {
+				setTab(tab.getAttribute('data-rasad-tab') || 'stats');
+			});
+		});
 
 		qsa('.rasad-range').forEach(function (btn) {
 			btn.addEventListener('click', function () {

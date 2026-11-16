@@ -144,6 +144,17 @@ final class Rasad_Admin {
 			'search_terms'=> __( 'جستجوی داخلی سایت', 'rasad' ),
 			'no_data'     => __( 'داده‌ای در این بازه نیست.', 'rasad' ),
 			'export'      => __( 'خروجی CSV', 'rasad' ),
+			'tab_stats'   => __( 'آمار', 'rasad' ),
+			'tab_live'    => __( 'زنده', 'rasad' ),
+			'online'      => __( 'بازدیدکنندهٔ آنلاین', 'rasad' ),
+			'live_hint'   => __( 'به‌روزرسانی خودکار هر ۱۵ ثانیه', 'rasad' ),
+			'live_feed'   => __( 'آخرین رویدادها', 'rasad' ),
+			'visitor'     => __( 'بازدیدکننده', 'rasad' ),
+			'page_col'    => __( 'صفحه', 'rasad' ),
+			'country'     => __( 'کشور', 'rasad' ),
+			'device_col'  => __( 'دستگاه', 'rasad' ),
+			'referrer_col'=> __( 'ارجاع', 'rasad' ),
+			'time_col'    => __( 'زمان', 'rasad' ),
 		);
 	}
 
@@ -162,6 +173,12 @@ final class Rasad_Admin {
 		<div class="wrap rasad-dash" dir="rtl">
 			<h1 class="rasad-title"><?php esc_html_e( 'رصد — آمار بازدید', 'rasad' ); ?></h1>
 
+			<div class="rasad-tabs" role="tablist" aria-label="<?php esc_attr_e( 'بخش‌های داشبورد', 'rasad' ); ?>">
+				<button type="button" class="rasad-tab is-active" role="tab" aria-selected="true" data-rasad-tab="stats"><?php esc_html_e( 'آمار', 'rasad' ); ?></button>
+				<button type="button" class="rasad-tab" role="tab" aria-selected="false" data-rasad-tab="live"><?php esc_html_e( 'زنده', 'rasad' ); ?></button>
+			</div>
+
+			<div class="rasad-stats-view" data-rasad-panel="stats">
 			<div class="rasad-toolbar">
 				<div class="rasad-ranges" role="group" aria-label="<?php esc_attr_e( 'بازهٔ زمانی', 'rasad' ); ?>">
 					<button type="button" class="rasad-range" data-range="today"><?php esc_html_e( 'امروز', 'rasad' ); ?></button>
@@ -244,6 +261,46 @@ final class Rasad_Admin {
 					</table>
 				</div>
 			</div>
+
+			</div><!-- /data-rasad-panel=stats -->
+
+			<div class="rasad-live-view" data-rasad-panel="live" hidden>
+				<div class="rasad-live-head">
+					<span class="rasad-live-dot" aria-hidden="true"></span>
+					<strong class="rasad-live-count">—</strong>
+					<span class="rasad-live-label"><?php esc_html_e( 'بازدیدکنندهٔ آنلاین', 'rasad' ); ?></span>
+					<span class="rasad-live-note"><?php esc_html_e( 'به‌روزرسانی خودکار هر ۱۵ ثانیه', 'rasad' ); ?></span>
+				</div>
+				<p class="rasad-live-error" role="status" aria-live="polite"></p>
+
+				<div class="rasad-panel">
+					<table class="rasad-table" data-table="live">
+						<thead><tr>
+							<th><?php esc_html_e( 'بازدیدکننده', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'صفحه', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'کشور', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'دستگاه', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'ارجاع', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'بازدیدها', 'rasad' ); ?></th>
+						</tr></thead>
+						<tbody></tbody>
+					</table>
+				</div>
+
+				<div class="rasad-panel">
+					<h2 class="rasad-panel-title"><?php esc_html_e( 'آخرین رویدادها', 'rasad' ); ?></h2>
+					<table class="rasad-table" data-table="feed">
+						<thead><tr>
+							<th><?php esc_html_e( 'زمان', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'صفحه', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'بازدیدکننده', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'کشور', 'rasad' ); ?></th>
+							<th><?php esc_html_e( 'ارجاع', 'rasad' ); ?></th>
+						</tr></thead>
+						<tbody></tbody>
+					</table>
+				</div>
+			</div><!-- /data-rasad-panel=live -->
 
 			<noscript>
 				<p class="rasad-noscript"><?php esc_html_e( 'برای نمایش داشبورد به جاوااسکریپت نیاز است.', 'rasad' ); ?></p>
