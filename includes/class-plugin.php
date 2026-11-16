@@ -93,6 +93,12 @@ final class Rasad_Plugin {
 		add_action( 'admin_menu', array( 'Rasad_Admin', 'admin_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( 'Rasad_Admin', 'enqueue' ) );
 
+		// Admin dashboard widget (Phase 7) — shown on the main WP dashboard.
+		add_action( 'plugins_loaded', array( 'Rasad_Admin_Dashboard_Widget', 'hooks' ), 10 );
+
+		// Post views column (Phase 7) — shown in posts/pages list tables.
+		add_action( 'plugins_loaded', array( 'Rasad_Admin_Post_Column', 'hooks' ), 10 );
+
 		// Aggregation pipeline. Callbacks stay lazy: the process/aggregator
 		// classes load only when their hook actually fires (cron request,
 		// first beacon with a backlog, WP-CLI).

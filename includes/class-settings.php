@@ -294,6 +294,9 @@ final class Rasad_Settings {
 
 		// GeoIP database download/delete (Phase 5), nonce + capability gated.
 		add_action( 'admin_post_rasad_geoip', array( __CLASS__, 'geoip_action' ) );
+
+		// CSV export (Phase 7), nonce + capability gated.
+		add_action( 'admin_post_rasad_csv', array( __CLASS__, 'csv_export' ) );
 	}
 
 	/**
@@ -878,6 +881,95 @@ final class Rasad_Settings {
 	}
 
 	/**
+	 * CSV export: streams the dashboard range as CSV.
+	 * Capability + nonce checked before any output.
+	 *
+	 * @return void
+	 */
+	public static function csv_export() {
+		if ( ! current_user_can( self::capability() ) ) {
+			wp_die( esc_html__( 'دسترسی غیرمجاز.', 'rasad' ) );
+		}
+
+		check_admin_referer( 'rasad_csv' );
+
+		$from = isset( $_GET['from'] ) ? sanitize_text_field( wp_unslash( $_GET['from'] ) ) : '';
+		$to   = isset( $_GET['to'] )   ? sanitize_text_field( wp_unslash( $_GET['to'] ) )   : '';
+
+		if ( ! preg_match( '/^\\d{4}-\\d{2}-\\d{2}$/', $from ) || ! preg_match( '/^\\d{4}-\\d{2}-\\d{2}$/', $to ) ) {
+			wp_die( esc_html__( 'بازهٔ زمانی نامعتبر است.', 'rasad' ) );
+		}
+
+		$jalali = (string) self::get( 'calendar' ) === 'jalali';
+
+		global $wpdb;
+
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) {
+			wp_die( esc_html__( 'خطا در دسترسی به پایگاه داده.', 'rasad' ) );
+		}
+
+		$daily  = Rasad_Installer::table( 'daily' );
+		$pages  = Rasad_Installer::table( 'daily_pages' );
+		$p_tbl  = Rasad_Installer::table( 'pages' );
+		$dims   = Rasad_Installer::table( 'daily_dim' );
+		$refs   = Rasad_Installer::table( 'referrers' );
+
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename="rasad-' . $from . '_' . $to . '.csv"' );
+		header( 'Cache-Control: no-cache, must-revalidate' );
+		header( 'Expires: 0' );
+
+		$out = fopen( 'php://output', 'w' );
+
+		fputcsv( $out, array(
+			__( 'تاریخ', 'rasad' ),
+			__( 'بازدیدها', 'rasad' ),
+			__( 'بازدیدکنندگان', 'rasad' ),
+			__( 'نشست‌ها', 'rasad' ),
+			__( 'نرخ پرش', 'rasad' ),
+			__( 'میانگین مدت (ثانیه)', 'rasad' ),
+		), '', ',', '"' );
+
+		// Daily overview rows
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			'SELECT day, views, visitors, sessions, bounces, total_duration FROM ' . $daily . '
+			WHERE day >= %s AND day <= %s ORDER BY day',
+			$from, $to
+		) );
+
+		foreach ( (array) $rows as $row ) {
+			$date = $jalali ? self::format_jalali_date( (string) $row->day ) : (string) $row->day;
+			$bounce = $row->sessions > 0 ? round( $row->bounces / $row->sessions, 4 ) : 0;
+			$avg    = $row->sessions > 0 ? (int) round( $row->total_duration / $row->sessions ) : 0;
+
+			fputcsv( $out, array(
+				$date,
+				(int) $row->views,
+				(int) $row->visitors,
+				(int) $row->sessions,
+				$bounce,
+				$avg,
+			), '', ',', '"' );
+		}
+
+		fclose( $out );
+		exit;
+	}
+
+	/**
+	 * Formats a 'Y-m-d' date as Jalali when the calendar setting is jalali.
+	 *
+	 * @param string $date 'Y-m-d'.
+	 * @return string
+	 */
+	private static function format_jalali_date( $date ) {
+		list( $y, $m, $d ) = explode( '-', $date );
+		$j = Rasad_Jalali::gregorian_to_jalali( (int) $y, (int) $m, (int) $d );
+
+		return Rasad_Jalali::persian_numerals( sprintf( '%04d/%02d/%02d', $j['jy'], $j['jm'], $j['jd'] ) );
+	}
+
+	/**
 	 * Renders the settings screen.
 	 *
 	 * @return void
@@ -919,12 +1011,13 @@ final class Rasad_Settings {
 		$hosts   = empty( $health['trusted_hosts'] )
 			? __( 'فقط میزبان سایت', 'rasad' )
 			: implode( ', ', $health['trusted_hosts'] );
-		$cron    = false === $health['cron_next']
+		$jalali = (string) Rasad_Settings::get( 'calendar' ) === 'jalali';
+		$cron   = false === $health['cron_next']
 			? __( 'فعال نیست', 'rasad' )
-			: date_i18n( 'Y-m-d H:i:s', (int) $health['cron_next'] );
-		$agg     = false === $health['last_aggregation']
+			: self::format_health_date( (int) $health['cron_next'], $jalali );
+		$agg    = false === $health['last_aggregation']
 			? __( 'هرگز اجرا نشده', 'rasad' )
-			: date_i18n( 'Y-m-d H:i:s', (int) $health['last_aggregation'] );
+			: self::format_health_date( (int) $health['last_aggregation'], $jalali );
 
 		?>
 		<div class="rasad-health" style="margin-top:24px;padding:16px;border:1px solid #ccc;background:#f9f9f9;direction:rtl;">
@@ -976,6 +1069,21 @@ final class Rasad_Settings {
 			<p class="description"><?php esc_html_e( 'آدرس شناسهٔ بازدیدکننده در هر درخواست از روی منبع IP انتخاب‌شده استخراج و (در صورت فعال بودن ناشناس‌سازی) در بافر ذخیره می‌شود.', 'rasad' ); ?></p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Formats a Unix timestamp for the health panel, honoring the calendar setting.
+	 *
+	 * @param int      $ts     Unix timestamp.
+	 * @param bool     $jalali True to format as Jalali.
+	 * @return string
+	 */
+	private static function format_health_date( $ts, $jalali ) {
+		if ( $jalali ) {
+			return Rasad_Jalali::format_persian( $ts, 'Y/m/d H:i' );
+		}
+
+		return date_i18n( 'Y-m-d H:i:s', $ts );
 	}
 	/*
 	|--------------------------------------------------------------------------
