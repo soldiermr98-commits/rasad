@@ -37,6 +37,8 @@ define( 'RASAD_MAX_PAYLOAD', 4096 );
  * - Rasad_Process_Aggregator        -> includes/process/class-aggregator.php
  * - Rasad_Admin                     -> includes/admin/class-admin.php
  * - Rasad_Admin_Dashboard_Widget    -> includes/admin/class-dashboard-widget.php
+ * - Rasad_Admin_Post_Column         -> includes/admin/class-post-column.php
+ * - Rasad_Jalali                    -> includes/helpers/class-jdate.php
  * - Rasad_Buffer_File               -> includes/collect/buffer/class-buffer-file.php
  * - Rasad_Buffer_Interface          -> includes/collect/buffer/interface-buffer.php
  *
@@ -51,7 +53,10 @@ function rasad_autoload( $class ) {
 	$parts = explode( '_', strtolower( substr( $class, 6 ) ) );
 	$leaf  = array_pop( $parts );
 
-	if ( empty( $parts ) ) {
+	if ( 'jalali' === $leaf && empty( $parts ) ) {
+		// Helper class: Rasad_Jalali -> includes/helpers/class-jdate.php.
+		$path = 'includes/helpers/class-jdate.php';
+	} elseif ( empty( $parts ) ) {
 		// Top-level class: Rasad_Installer -> includes/class-installer.php,
 		// except Rasad_Admin which lives in its own subdirectory.
 		$path = ( 'admin' === $leaf )

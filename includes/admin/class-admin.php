@@ -84,8 +84,9 @@ final class Rasad_Admin {
 					'nonce'    => wp_create_nonce( 'wp_rest' ),
 					'page'     => Rasad_Settings::PAGE_DASHBOARD,
 					'defaults' => array(
-						'from' => self::default_from(),
-						'to'   => Rasad_Process_Aggregator::local_day( time() ),
+						'from'  => self::default_from(),
+						'to'    => Rasad_Process_Aggregator::local_day( time() ),
+						'jalali'=> (string) Rasad_Settings::get( 'calendar' ) === 'jalali',
 					),
 					'strings'  => self::strings(),
 				)
@@ -104,6 +105,22 @@ final class Rasad_Admin {
 		list( $start ) = Rasad_Process_Aggregator::day_bounds( $today );
 
 		return Rasad_Process_Aggregator::local_day( $start - ( 6 * 86400 ) );
+	}
+
+	/**
+	 * Builds a nonce-protected CSV export URL for the current dashboard range.
+	 *
+	 * @return string
+	 */
+	public static function csv_url() {
+		$url = add_query_arg(
+			array(
+				'action' => 'rasad_csv',
+				),
+			admin_url( 'admin-post.php' )
+		);
+
+		return wp_nonce_url( $url, 'rasad_csv' );
 	}
 
 	/**
@@ -155,6 +172,8 @@ final class Rasad_Admin {
 			'device_col'  => __( 'دستگاه', 'rasad' ),
 			'referrer_col'=> __( 'ارجاع', 'rasad' ),
 			'time_col'    => __( 'زمان', 'rasad' ),
+			'jalali'    => __( 'شمسی', 'rasad' ),
+			'gregorian' => __( 'میلادی', 'rasad' ),
 		);
 	}
 
@@ -191,6 +210,7 @@ final class Rasad_Admin {
 					<label><?php esc_html_e( 'از', 'rasad' ); ?> <input type="date" name="from" class="rasad-from" max="<?php echo esc_attr( $today ); ?>" /></label>
 					<label><?php esc_html_e( 'تا', 'rasad' ); ?> <input type="date" name="to" class="rasad-to" max="<?php echo esc_attr( $today ); ?>" /></label>
 					<button type="submit" class="button button-secondary"><?php esc_html_e( 'اعمال', 'rasad' ); ?></button>
+					<a href="<?php echo esc_url( self::csv_url() ); ?>" class="button button-secondary"><?php esc_html_e( 'خروجی CSV', 'rasad' ); ?></a>
 				</form>
 				<p class="rasad-status" role="status" aria-live="polite"></p>
 			</div>
