@@ -81,6 +81,10 @@ final class Rasad_Plugin {
 		// Versioned DB migrations, only in admin context (never on the front-end hot path).
 		add_action( 'admin_init', array( 'Rasad_Installer', 'maybe_upgrade' ) );
 
+		// Refresh collect.php bootstrap files (wp-load hint + self-test key)
+		// for installs that predate them — admin-only, no-ops when current.
+		add_action( 'admin_init', array( 'Rasad_Installer', 'ensure_bootstrap_files' ) );
+
 		Rasad_Settings::hooks();
 		Rasad_Api_Rest::hooks();
 

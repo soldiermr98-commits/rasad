@@ -19,6 +19,113 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Rasad_Collect_Request {
 
 	/**
+	 * Diagnostic status of the last process() call.
+	 *
+	 * ok      — accepted and pushed to the buffer.
+	 * dropped — intentionally ignored (bot, DNT, exclusions, rate limit…).
+	 * error   — rejected (bad payload, cross-origin, buffer failure…).
+	 *
+	 * @var string
+	 */
+	private static $last_status = 'error';
+
+	/**
+	 * Status of the most recent process() call.
+	 *
+	 * @return string ok|dropped|error.
+	 */
+	public static function last_status() {
+		return self::$last_status;
+	}
+
+	/**
+	 * Self-test key written on activation (selftest-key.php next to the
+	 * plugin). Readable without any WordPress API — collect.php uses it
+	 * before/without a working bootstrap.
+	 *
+	 * @return string Hex key or '' when missing.
+	 */
+	public static function selftest_key() {
+		$file = RASAD_DIR . 'selftest-key.php';
+
+		if ( ! is_readable( $file ) ) {
+			return '';
+		}
+
+		try {
+			$key = include $file;
+		} catch ( Throwable $e ) {
+			return '';
+		}
+
+		return is_string( $key ) ? $key : '';
+	}
+
+	/**
+	 * May this response carry the X-Rasad-Status diagnostic header?
+	 *
+	 * True when WP_DEBUG is on, or the request carries the valid
+	 * self-test key (?rasad_test=… / X-Rasad-Test-Key: …).
+	 *
+	 * @return bool
+	 */
+	public static function diag_requested() {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			return true;
+		}
+
+		$given = '';
+
+		if ( isset( $_GET['rasad_test'] ) && is_string( $_GET['rasad_test'] ) ) {
+			$given = $_GET['rasad_test'];
+		} elseif ( isset( $_SERVER['HTTP_X_RASAD_TEST_KEY'] ) && is_string( $_SERVER['HTTP_X_RASAD_TEST_KEY'] ) ) {
+			$given = $_SERVER['HTTP_X_RASAD_TEST_KEY'];
+		}
+
+		if ( '' === $given || strlen( $given ) > 128 ) {
+			return false;
+		}
+
+		$stored = self::selftest_key();
+
+		return '' !== $stored && strlen( $stored ) === strlen( $given ) && hash_equals( $stored, $given );
+	}
+
+	/**
+	 * Records `dropped` and returns the silent 204.
+	 *
+	 * @return int 204.
+	 */
+	private static function drop() {
+		self::$last_status = 'dropped';
+
+		return 204;
+	}
+
+	/**
+	 * Records `ok` and returns the accepted 204.
+	 *
+	 * @return int 204.
+	 */
+	private static function accepted() {
+		self::$last_status = 'ok';
+
+		return 204;
+	}
+
+	/**
+	 * Records `error` and returns the rejection code.
+	 *
+	 * @param int $code HTTP status (400/403/500).
+	 * @return int
+	 */
+	private static function rejected( $code ) {
+		self::$last_status = 'error';
+
+		return (int) $code;
+	}
+
+	/**
 	 * Processes one raw beacon payload end to end.
 	 *
 	 * @param string $raw Raw request body (JSON) or pixel query payload.
@@ -26,31 +133,33 @@ final class Rasad_Collect_Request {
 	 *              403 cross-origin, 500 buffer failure.
 	 */
 	public static function process( $raw ) {
+		self::$last_status = 'error';
+
 		if ( ! is_string( $raw ) || '' === $raw || strlen( $raw ) > RASAD_MAX_PAYLOAD ) {
-			return 400;
+			return self::rejected( 400 );
 		}
 
 		if ( ! self::same_origin() ) {
-			return 403;
+			return self::rejected( 403 );
 		}
 
 		$settings = Rasad_Settings::all();
 
 		// Browser-side DNT is enforced in t.js; also honor the request header.
 		if ( ! empty( $settings['honor_dnt'] ) && isset( $_SERVER['HTTP_DNT'] ) && '1' === (string) $_SERVER['HTTP_DNT'] ) {
-			return 204;
+			return self::drop();
 		}
 
 		$decoded = self::decode( $raw );
 
 		if ( null === $decoded ) {
-			return 400;
+			return self::rejected( 400 );
 		}
 
 		$data = self::sanitize( $decoded );
 
 		if ( null === $data ) {
-			return 400;
+			return self::rejected( 400 );
 		}
 
 		/**
@@ -60,35 +169,35 @@ final class Rasad_Collect_Request {
 		 * @param array<string,mixed>|null $data  Sanitized payload (null at enqueue time).
 		 */
 		if ( ! apply_filters( 'rasad_should_track', true, $data ) ) {
-			return 204;
+			return self::drop();
 		}
 
 		$ua = isset( $_SERVER['HTTP_USER_AGENT'] ) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
 		$ip = self::client_ip();
 
 		if ( Rasad_Collect_Visitor::is_bot( $ua ) ) {
-			return 204;
+			return self::drop();
 		}
 
 		if ( self::is_excluded( $data, $ua, $ip, $settings ) ) {
-			return 204;
+			return self::drop();
 		}
 
 		$vk = Rasad_Collect_Visitor::key( $ip, $ua );
 
 		// No persistable secret => refuse to build an unsalted identifier.
 		if ( '' === $vk ) {
-			return 204;
+			return self::drop();
 		}
 
 		if ( Rasad_Collect_Visitor::rate_limited( $vk ) ) {
-			return 204;
+			return self::drop();
 		}
 
 		// Role exclusion is the only DB lookup on the hot path (logged-in
 		// users only) — placed after the rate limit so floods never query.
 		if ( self::is_excluded_user( $settings ) ) {
-			return 204;
+			return self::drop();
 		}
 
 		$hit = self::to_buffer( $data, $vk, $ip, $ua );
@@ -102,13 +211,13 @@ final class Rasad_Collect_Request {
 		$hit = apply_filters( 'rasad_hit_data', $hit, $data );
 
 		if ( ! is_array( $hit ) || empty( $hit['p'] ) ) {
-			return 400;
+			return self::rejected( 400 );
 		}
 
 		$buffer = Rasad_Plugin::buffer();
 
 		if ( ! $buffer->push( $hit ) ) {
-			return 500;
+			return self::rejected( 500 );
 		}
 
 		/**
@@ -119,7 +228,7 @@ final class Rasad_Collect_Request {
 		 */
 		do_action( 'rasad_after_hit', $hit );
 
-		return 204;
+		return self::accepted();
 	}
 
 	/**
@@ -138,16 +247,13 @@ final class Rasad_Collect_Request {
 		$query = array();
 		parse_str( (string) $raw, $query );
 
-		if ( isset( $query['b'] ) && is_string( $query['b'] ) ) {
-			$decoded = json_decode( $query['b'], true );
+		// GET/pixel fallback is strict: exactly ?d=1&b=<json object>. Bare
+		// query strings are never treated as payloads.
+		if ( isset( $query['d'] ) && '1' === (string) $query['d']
+			&& isset( $query['b'] ) && is_string( $query['b'] ) ) {
+			$inner = json_decode( $query['b'], true );
 
-			if ( is_array( $decoded ) ) {
-				return $decoded;
-			}
-		}
-
-		if ( ! empty( $query ) ) {
-			return $query;
+			return is_array( $inner ) ? $inner : null;
 		}
 
 		return null;
