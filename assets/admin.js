@@ -515,14 +515,16 @@
 
 		var form = qs('.rasad-custom-range');
 		if (form) {
-			form.addEventListener('submit', function (event) {
-				event.preventDefault();
-				var from = qs('.rasad-from', form).value;
-				var to = qs('.rasad-to', form).value;
-				if (from && to) {
-					setRange(from, to, '', null);
-				}
-			});
+			var calBtn = qs('.rasad-calendar', form);
+			if (calBtn) {
+				calBtn.addEventListener('click', function () {
+					var from = qs('.rasad-from', form).value;
+					var to = qs('.rasad-to', form).value;
+					if (from && to) {
+						setRange(from, to, '', null);
+					}
+				});
+			}
 		}
 
 		load();
