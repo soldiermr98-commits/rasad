@@ -273,3 +273,92 @@
 .rasad-noscript {
 	color: var(--rasad-bad);
 }
+
+/* ---------------------------------------------------------------------
+   Tabs + Live panel (Phase 5)
+   --------------------------------------------------------------------- */
+
+.rasad-tabs {
+	display: flex;
+	gap: 4px;
+	margin: 0 0 16px;
+	border-bottom: 1px solid var(--rasad-border);
+}
+
+.rasad-tab {
+	appearance: none;
+	background: transparent;
+	border: 1px solid transparent;
+	border-bottom: none;
+	border-radius: 6px 6px 0 0;
+	color: var(--rasad-muted);
+	cursor: pointer;
+	font: inherit;
+	font-weight: 600;
+	padding: 8px 18px;
+}
+
+.rasad-tab:hover {
+	color: var(--rasad-fg);
+}
+
+.rasad-tab.is-active {
+	background: var(--rasad-panel);
+	border-color: var(--rasad-border);
+	color: var(--rasad-accent);
+	margin-bottom: -1px;
+	padding-bottom: 9px;
+}
+
+.rasad-live-head {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin: 0 0 16px;
+}
+
+.rasad-live-count {
+	font-size: 28px;
+	line-height: 1;
+}
+
+.rasad-live-label {
+	color: var(--rasad-muted);
+}
+
+.rasad-live-note {
+	color: var(--rasad-muted);
+	font-size: 12px;
+	margin-inline-start: auto;
+}
+
+.rasad-live-dot {
+	animation: rasad-pulse 1.6s ease-in-out infinite;
+	background: var(--rasad-good);
+	border-radius: 50%;
+	display: inline-block;
+	height: 10px;
+	width: 10px;
+}
+
+@keyframes rasad-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.35; }
+}
+
+.rasad-live-error {
+	color: var(--rasad-muted);
+	min-height: 1.2em;
+}
+
+.rasad-live-error.is-error {
+	color: var(--rasad-bad);
+}
+
+.rasad-vk {
+	direction: ltr;
+	display: inline-block;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+}

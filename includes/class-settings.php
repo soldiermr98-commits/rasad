@@ -276,6 +276,9 @@ final class Rasad_Settings {
 		// Keep the collect-time mirror in sync with the option.
 		add_action( 'update_option_' . self::OPTION, array( __CLASS__, 'write_mirror' ) );
 		add_action( 'added_option_' . self::OPTION, array( __CLASS__, 'write_mirror' ) );
+
+		// GeoIP database download/delete (Phase 5), nonce + capability gated.
+		add_action( 'admin_post_rasad_geoip', array( __CLASS__, 'geoip_action' ) );
 	}
 
 	/**
@@ -298,6 +301,7 @@ final class Rasad_Settings {
 		add_settings_section( 'rasad_general', __( 'عمومی', 'rasad' ), '__return_empty_string', self::PAGE );
 		add_settings_section( 'rasad_tracking', __( 'ردیابی', 'rasad' ), '__return_empty_string', self::PAGE );
 		add_settings_section( 'rasad_system', __( 'سیستم', 'rasad' ), '__return_empty_string', self::PAGE );
+		add_settings_section( 'rasad_geoip', __( 'پایگاه دادهٔ GeoIP', 'rasad' ), array( __CLASS__, 'render_geoip_section' ), self::PAGE );
 
 		add_settings_field(
 			'buffer_driver',
@@ -593,6 +597,112 @@ final class Rasad_Settings {
 	| Page
 	|--------------------------------------------------------------------------
 	*/
+
+	/**
+	 * Section content: per-database status + download/remove actions.
+	 * Rendered inside the settings form, so actions are links (no nested
+	 * forms); each link carries a nonce and is verified in geoip_action().
+	 *
+	 * @return void
+	 */
+	public static function render_geoip_section() {
+		foreach ( array( 'country' => __( 'کشور', 'rasad' ), 'city' => __( 'شهر', 'rasad' ) ) as $kind => $label ) {
+			$status = Rasad_Process_Geoip::status( $kind );
+			$bytes  = isset( $status['bytes'] ) ? (int) $status['bytes'] : 0;
+			$human  = size_format( $bytes );
+
+			echo '<p class="rasad-geoip-row"><strong>' . esc_html( $label ) . ':</strong> ';
+
+			if ( ! empty( $status['available'] ) ) {
+				$date = ! empty( $status['build_epoch'] )
+					? date_i18n( 'Y-m-d', (int) $status['build_epoch'] )
+					: '';
+				/* translators: %s: database size, %s: build date. */
+				echo esc_html( sprintf( __( 'نصب‌شده (%s، بروزرسانی: %s).', 'rasad' ), $human, $date ) );
+				echo ' — ' . self::geoip_link( 'delete', $kind, __( 'حذف', 'rasad' ), 'delete' );
+			} else {
+				$note = 'corrupt' === ( isset( $status['error'] ) ? $status['error'] : '' )
+					? __( 'فایل موجود اما خراب است.', 'rasad' )
+					: __( 'نصب نشده.', 'rasad' );
+				echo esc_html( $note );
+				echo ' — ' . self::geoip_link( 'download', $kind, __( 'دانلود', 'rasad' ), 'primary' );
+			}
+
+			echo '</p>';
+		}
+
+		echo '<p class="description">'
+			. esc_html__( 'فایل‌ها از DB-IP Lite (ماهانه) دانلود و در پوشهٔ data/ نگهداری می‌شوند؛ جستجوی موقعیت فقط داخل پردازش تجمیعی انجام می‌شود و مسیر دانلود با فیلتر rasad_geoip_download_url قابل تغییر است.', 'rasad' )
+			. '</p>';
+	}
+
+	/**
+	 * Builds one nonce-protected admin-post link for the GeoIP actions.
+	 *
+	 * @param string $op      download|delete.
+	 * @param string $kind    country|city.
+	 * @param string $text    Link text (already translated).
+	 * @param string $klass   Button class suffix.
+	 * @return string HTML anchor.
+	 */
+	private static function geoip_link( $op, $kind, $text, $klass ) {
+		$url = add_query_arg(
+			array(
+				'action' => 'rasad_geoip',
+				'op'     => $op,
+				'db'     => $kind,
+			),
+			admin_url( 'admin-post.php' )
+		);
+		$url = wp_nonce_url( $url, 'rasad_geoip' );
+
+		return '<a class="button button-' . esc_attr( $klass ) . '" href="'
+			. esc_url( $url ) . '">' . esc_html( $text ) . '</a>';
+	}
+
+	/**
+	 * admin_post_rasad_geoip: download/remove one GeoIP database.
+	 * Capability + nonce checked before any filesystem/network work.
+	 *
+	 * @return void
+	 */
+	public static function geoip_action() {
+		if ( ! current_user_can( self::capability() ) ) {
+			wp_die( esc_html__( 'دسترسی غیرمجاز.', 'rasad' ) );
+		}
+
+		check_admin_referer( 'rasad_geoip' );
+
+		$op   = isset( $_GET['op'] ) ? sanitize_key( wp_unslash( $_GET['op'] ) ) : '';
+		$kind = isset( $_GET['db'] ) && 'city' === $_GET['db'] ? 'city' : 'country';
+		$msg  = '';
+		$type = 'success';
+
+		if ( 'download' === $op ) {
+			$result = Rasad_Process_Geoip::download( $kind );
+
+			if ( true === $result ) {
+				$msg = __( 'پایگاه دادهٔ GeoIP با موفقیت دانلود و نصب شد.', 'rasad' );
+			} else {
+				$type = 'error';
+				$msg  = is_wp_error( $result )
+					/* translators: %s: error message. */
+					? sprintf( __( 'خطا در دانلود: %s', 'rasad' ), $result->get_error_message() )
+					: __( 'خطا در دانلود GeoIP.', 'rasad' );
+			}
+		} elseif ( 'delete' === $op ) {
+			Rasad_Process_Geoip::delete( $kind );
+			$msg = __( 'پایگاه دادهٔ GeoIP حذف شد.', 'rasad' );
+		}
+
+		if ( '' !== $msg ) {
+			add_settings_error( 'rasad_geoip', 'rasad_geoip', $msg, $type );
+			set_transient( 'settings_errors', get_settings_errors(), 30 );
+		}
+
+		wp_safe_redirect( admin_url( 'options-general.php?page=' . self::PAGE ) );
+		exit;
+	}
 
 	/**
 	 * Renders the settings screen.
