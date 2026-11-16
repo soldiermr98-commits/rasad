@@ -35,6 +35,15 @@ interface Rasad_Buffer_Interface {
 	public function pop_batch( $limit );
 
 	/**
+	 * Peeks at up to $limit buffered hits without removing them, so the
+	 * live panel can reflect hits that have not been aggregated yet.
+	 *
+	 * @param int $limit Maximum number of hits to return.
+	 * @return array<int,array<string,mixed>> Decoded hits (empty when the buffer is empty).
+	 */
+	public function peek_batch( $limit );
+
+	/**
 	 * Approximate number of buffered hits (used by the aggregator + health check).
 	 *
 	 * @return int

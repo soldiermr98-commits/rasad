@@ -281,6 +281,7 @@ final class Rasad_Installer {
 		return array(
 			'1.0.0' => 'migrate_1_0_0',
 			'1.1.0' => 'migrate_1_1_0',
+			'1.2.0' => 'migrate_1_2_0',
 		);
 	}
 
@@ -303,6 +304,16 @@ final class Rasad_Installer {
 		self::create_tables();
 	}
 
+	/**
+	 * Migration 1.2.0: rebuilds rsd_hourly using site-timezone hour buckets
+	 * (replaces UTC-hour buckets). Recomputes hourly rows for every day that
+	 * has hits so zones like Asia/Tehran (+3:30) align correctly.
+	 *
+	 * @return void
+	 */
+	public static function migrate_1_2_0() {
+		Rasad_Process_Aggregator::rebuild_hourly();
+	}
 	/**
 	 * Creates/updates all tables through dbDelta.
 	 *

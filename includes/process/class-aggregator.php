@@ -47,6 +47,10 @@ final class Rasad_Process_Aggregator {
 	/** Session spawn throttling marker lives this long (seconds). */
 	const SPAWN_THROTTLE = 30;
 
+	/** Today is fully recomputed at most this often (seconds); between runs
+	 *  only additive view/session increments are applied to today's row. */
+	const TODAY_FULL_RECOMPUTE_SECONDS = 300;
+
 	/** Path => array{id:int,title:string,post_id:int,post_type:string}. */
 	private static $page_cache = array();
 
@@ -76,6 +80,12 @@ final class Rasad_Process_Aggregator {
 
 	/** WooCommerce events awaiting rsd_events write (per run). */
 	private static $events_seen = array();
+
+	/** Additive view increments for today (keyed by local day). */
+	private static $additive_views = array();
+
+	/** Additive session increments for today (keyed by local day). */
+	private static $additive_sessions = array();
 
 	/*
 	|--------------------------------------------------------------------------
@@ -266,6 +276,14 @@ final class Rasad_Process_Aggregator {
 	 * @return string 64-char hex.
 	 */
 	public static function cron_key() {
+		// A rotatable, admin-configured secret takes precedence over the
+		// derived HMAC so keys can be rotated without changing salts.
+		$configured = Rasad_Settings::get( 'cron_key' );
+
+		if ( is_string( $configured ) && '' !== $configured ) {
+			return $configured;
+		}
+
 		$salt = function_exists( 'wp_salt' )
 			? (string) wp_salt( 'auth' )
 			: ( defined( 'AUTH_SALT' ) ? (string) AUTH_SALT : '' );
@@ -343,6 +361,8 @@ final class Rasad_Process_Aggregator {
 		self::$affected    = array();
 		self::$search_pages = null;
 		self::$events_seen = array();
+		self::$additive_views = array();
+		self::$additive_sessions = array();
 
 		$batch_size = (int) Rasad_Settings::get( 'aggregate_batch' );
 		$batch_size = max( 100, min( 5000, $batch_size ? $batch_size : 1000 ) );
@@ -472,13 +492,18 @@ final class Rasad_Process_Aggregator {
 
 			$path = isset( $hit['p'] ) && is_string( $hit['p'] ) ? $hit['p'] : '';
 
-			if ( '' === $path || '/' !== $path[0] || strlen( $path ) > 500 ) {
-				continue;
-			}
+		if ( '' === $path || '/' !== $path[0] || strlen( $path ) > 500 ) {
+			continue;
+		}
 
-			$views[] = array(
-				'vk'  => $vk,
-				'ts'  => $ts,
+		$day = self::local_day( $ts );
+		self::$additive_views[ $day ] = isset( self::$additive_views[ $day ] )
+			? self::$additive_views[ $day ] + 1
+			: 1;
+
+		$views[] = array(
+			'vk'  => $vk,
+			'ts'  => $ts,
 				'p'   => $path,
 				'r'   => isset( $hit['r'] ) ? (string) $hit['r'] : '',
 				'ua'  => isset( $hit['ua'] ) ? (string) $hit['ua'] : '',
@@ -678,6 +703,11 @@ final class Rasad_Process_Aggregator {
 
 		$country  = '';
 		$city_id  = 0;
+
+		// Track new sessions created today for additive view/session increments.
+		self::$additive_sessions[ self::local_day( $view['ts'] ) ] = isset( self::$additive_sessions[ self::local_day( $view['ts'] ) ] )
+			? self::$additive_sessions[ self::local_day( $view['ts'] ) ] + 1
+			: 1;
 
 		if ( class_exists( 'Rasad_Process_Geoip' ) ) {
 			$geo = Rasad_Process_Geoip::lookup( isset( $view['ip'] ) ? $view['ip'] : '' );
@@ -1204,20 +1234,41 @@ final class Rasad_Process_Aggregator {
 			$out['daily'][] = array( $day, $views, $visitors, $sess_cnt, $bounces, $duration );
 		}
 
-		// --- rsd_hourly (UTC-hour buckets; views + visitors).
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+		// --- rsd_hourly (site-timezone hour buckets; views + visitors).
+		// The bucket key is the UTC timestamp of the start of the local hour
+		// containing the hit: ts - ((ts + offset_at_ts) mod 3600). This keeps
+		// zones like Asia/Tehran (+3:30), India (+5:30), Nepal (+5:45) aligned
+		// and is DST-safe because the offset is resolved per hit.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT (h.ts - MOD(h.ts, 3600)) AS hr, COUNT(*) AS v, COUNT(DISTINCT s.visitor_key) AS vi"
+				"SELECT h.ts AS ts, s.visitor_key AS vk"
 				. " FROM {$hits} h INNER JOIN {$sessions} s ON s.id = h.session_id"
-				. ' WHERE h.ts >= %d AND h.ts < %d GROUP BY hr',
+				. ' WHERE h.ts >= %d AND h.ts < %d',
 				$start,
 				$end
 			)
 		);
 
+		$tz       = self::tz();
+		$buckets  = array();
+
 		foreach ( (array) $rows as $row ) {
-			$out['hourly'][] = array( (int) $row->hr, (int) $row->v, (int) $row->vi );
+			$ts = (int) $row->ts;
+			$dt = ( new DateTimeImmutable( '@' . $ts ) )->setTimezone( $tz );
+			// Offset east of UTC in seconds at this exact timestamp (DST-aware).
+			$off = (int) $dt->getOffset();
+			// Start of the local hour, expressed as a UTC timestamp.
+			$hr = $ts - ( ( $ts + $off ) % 3600 );
+
+			if ( ! isset( $buckets[ $hr ] ) ) {
+				$buckets[ $hr ] = array( 'v' => 0, 'vi' => array() );
+			}
+			$buckets[ $hr ]['v']++;
+			$buckets[ $hr ]['vi'][ (string) $row->vk ] = true;
+		}
+
+		foreach ( $buckets as $hr => $data ) {
+			$out['hourly'][] = array( (int) $hr, (int) $data['v'], (int) count( $data['vi'] ) );
 		}
 
 		// --- rsd_daily_pages: views/visitors per page.
@@ -1436,6 +1487,76 @@ final class Rasad_Process_Aggregator {
 		}
 	}
 
+/**
+ * Rebuilds rsd_hourly for every day that has hits using site-timezone
+ * hour buckets. Used by migration 1.2.0 after the switch from UTC-hour
+ * buckets. Idempotent: truncates the table first.
+ *
+ * @return int Number of hourly rows written.
+ */
+public static function rebuild_hourly() {
+    global $wpdb;
+
+    $hits     = Rasad_Installer::table( 'hits' );
+    $sessions = Rasad_Installer::table( 'sessions' );
+    $hourly   = Rasad_Installer::table( 'hourly' );
+
+    // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+    $wpdb->query( 'TRUNCATE TABLE ' . $hourly );
+
+    $days = $wpdb->get_col( "SELECT DISTINCT DATE(FROM_UNIXTIME(ts)) FROM {$hits}" );
+
+    $tz      = self::tz();
+    $written = 0;
+
+    foreach ( (array) $days as $day ) {
+        list( $start, $end ) = self::day_bounds( (string) $day );
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT h.ts AS ts, s.visitor_key AS vk"
+                . " FROM {$hits} h INNER JOIN {$sessions} s ON s.id = h.session_id"
+                . ' WHERE h.ts >= %d AND h.ts < %d',
+                $start,
+                $end
+            )
+        );
+
+        $buckets = array();
+
+        foreach ( (array) $rows as $row ) {
+            $ts = (int) $row->ts;
+            $dt = ( new DateTimeImmutable( '@' . $ts ) )->setTimezone( $tz );
+            // Offset east of UTC in seconds at this exact timestamp (DST-aware).
+            $off = (int) $dt->getOffset();
+            // Start of the local hour, expressed as a UTC timestamp.
+            $hr = $ts - ( ( $ts + $off ) % 3600 );
+
+            if ( ! isset( $buckets[ $hr ] ) ) {
+                $buckets[ $hr ] = array( 'v' => 0, 'vi' => array() );
+            }
+            $buckets[ $hr ]['v']++;
+            $buckets[ $hr ]['vi'][ (string) $row->vk ] = true;
+        }
+
+        foreach ( $buckets as $hr => $data ) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+            $wpdb->insert(
+                $hourly,
+                array(
+                    'hour_ts' => (int) $hr,
+                    'views'   => (int) $data['v'],
+                    'visitors'=> (int) count( $data['vi'] ),
+                ),
+                array( '%d', '%d', '%d' )
+            );
+            $written++;
+        }
+    }
+
+    return (int) $written;
+}
 	/**
 	 * Maps a raw dimension value to the INT dim_id storage.
 	 *

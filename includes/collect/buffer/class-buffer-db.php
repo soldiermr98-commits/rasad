@@ -169,6 +169,42 @@ final class Rasad_Buffer_Db implements Rasad_Buffer_Interface {
 	/**
 	 * {@inheritDoc}
 	 */
+	/**
+	 * {@inheritDoc}
+	 *
+	 * Reads without deleting rows.
+	 */
+	public function peek_batch( $limit ) {
+		global $wpdb;
+
+		$limit = max( 1, (int) $limit );
+		$batch = array();
+
+		if ( ! $this->is_available() || ! $this->ensure_table() ) {
+			return $batch;
+		}
+
+		$table = $this->table_name();
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name from wpdb prefix.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT hit FROM {$table} ORDER BY id ASC LIMIT %d",
+				$limit
+			)
+		);
+
+		foreach ( (array) $rows as $row ) {
+			$hit = json_decode( $row->hit, true );
+
+			if ( is_array( $hit ) ) {
+				$batch[] = $hit;
+			}
+		}
+
+		return $batch;
+	}
+
 	public function count() {
 		global $wpdb;
 

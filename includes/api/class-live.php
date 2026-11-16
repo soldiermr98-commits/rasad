@@ -85,6 +85,10 @@ final class Rasad_Api_Live {
 			)
 		);
 
+		// 3b) Unprocessed buffer tail: hits within seconds that have not been
+		//     aggregated yet (file/APCu/Redis/DB drivers all support peek_batch).
+		$tail = self::buffer_tail( $since );
+
 		// 3) Referrer labels for all referenced ids (one small query).
 		$ref_ids = array();
 
@@ -99,10 +103,13 @@ final class Rasad_Api_Live {
 		$ref_map = self::referrer_labels( $ref_ids, $refs );
 
 		$visitors = array();
+		$online_vks = array();
 
 		foreach ( $online_rows as $row ) {
+			$vk = bin2hex( (string) $row->visitor_key );
+			$online_vks[ $vk ] = true;
 			$visitors[] = array(
-				'id'         => bin2hex( (string) $row->visitor_key ),
+				'id'         => $vk,
 				'last_seen'  => (int) $row->last_seen,
 				'page'       => isset( $row->path ) && null !== $row->path ? (string) $row->path : '',
 				'country'    => (string) $row->country,
@@ -115,11 +122,42 @@ final class Rasad_Api_Live {
 			);
 		}
 
+		// Append visitors that only exist in the unprocessed buffer tail.
+		foreach ( $tail as $hit ) {
+			if ( ! is_array( $hit ) ) {
+				continue;
+			}
+			$vk = isset( $hit['vk'] ) ? strtolower( (string) $hit['vk'] ) : '';
+			if ( '' === $vk || ! preg_match( '/^[0-9a-f]{16}$/', $vk ) ) {
+				continue;
+			}
+			if ( isset( $online_vks[ $vk ] ) ) {
+				continue;
+			}
+			$online_vks[ $vk ] = true;
+			$visitors[] = array(
+				'id'         => $vk,
+				'last_seen'  => isset( $hit['ts'] ) ? (int) $hit['ts'] : $now,
+				'page'       => isset( $hit['p'] ) ? (string) $hit['p'] : '',
+				'country'    => '',
+				'device'     => '',
+				'browser'    => '',
+				'os'         => '',
+				'pageviews'  => 1,
+				'duration'   => 0,
+				'referrer'   => '',
+			);
+		}
+
 		$feed = array();
 
+		// Feed: aggregated hits first, then unprocessed buffer tail (newest first).
+		$feed_items = array();
+
 		foreach ( $feed_rows as $row ) {
-			$feed[] = array(
-				'time'     => date( 'H:i:s', (int) $row->ts ),
+			$feed_items[] = array(
+				'ts'       => (int) $row->ts,
+				'time'     => wp_date( 'H:i:s', (int) $row->ts ),
 				'page'     => (string) $row->path,
 				'id'       => bin2hex( (string) $row->visitor_key ),
 				'country'  => (string) $row->country,
@@ -128,12 +166,41 @@ final class Rasad_Api_Live {
 			);
 		}
 
+		foreach ( $tail as $hit ) {
+			if ( ! is_array( $hit ) ) {
+				continue;
+			}
+			$ts = isset( $hit['ts'] ) ? (int) $hit['ts'] : 0;
+			if ( $ts < $since ) {
+				continue;
+			}
+			$feed_items[] = array(
+				'ts'       => $ts,
+				'time'     => wp_date( 'H:i:s', $ts ),
+				'page'     => isset( $hit['p'] ) ? (string) $hit['p'] : '',
+				'id'       => isset( $hit['vk'] ) ? bin2hex( strtolower( (string) $hit['vk'] ) ) : '',
+				'country'  => '',
+				'device'   => '',
+				'referrer' => '',
+			);
+		}
+
+		usort( $feed_items, function ( $a, $b ) {
+			return $b['ts'] - $a['ts'];
+		});
+
+		$feed = array();
+		foreach ( array_slice( $feed_items, 0, self::FEED_LIMIT ) as $item ) {
+			unset( $item['ts'] );
+			$feed[] = $item;
+		}
+
 		return new WP_REST_Response(
 			array(
 				'online'   => count( $visitors ),
 				'visitors' => $visitors,
 				'feed'     => $feed,
-				'now'      => date( 'H:i:s', $now ),
+				'now'      => wp_date( 'H:i:s', $now ),
 				'window'   => self::WINDOW,
 			),
 			200
@@ -209,5 +276,39 @@ final class Rasad_Api_Live {
 		}
 
 		return '';
+	}
+
+	/**
+	 * Returns unprocessed buffer hits within the given time window, newest
+	 * first, without removing them from the buffer. Used by /live so "online
+	 * now" reflects hits within seconds of collection.
+	 *
+	 * @param int $since Unix timestamp; only hits with ts >= $since are returned.
+	 * @return array<int,array<string,mixed>> Decoded hits.
+	 */
+	private static function buffer_tail( $since ) {
+		$buffer = Rasad_Plugin::buffer();
+
+		if ( ! is_object( $buffer ) || ! method_exists( $buffer, 'peek_batch' ) ) {
+			return array();
+		}
+
+		$tail = array();
+
+		foreach ( $buffer->peek_batch( 500 ) as $hit ) {
+			if ( ! is_array( $hit ) ) {
+				continue;
+			}
+
+			$ts = isset( $hit['ts'] ) ? (int) $hit['ts'] : 0;
+
+			if ( $ts < $since ) {
+				continue;
+			}
+
+			$tail[] = $hit;
+		}
+
+		return $tail;
 	}
 }

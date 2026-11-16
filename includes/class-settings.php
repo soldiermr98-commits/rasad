@@ -97,6 +97,9 @@ final class Rasad_Settings {
 		'enforce_origin_get'  => true,
 		// Anonymize IP in the buffer line (zero last octet / last 80 bits).
 		'ip_anonymize'        => true,
+		// Optional, rotatable secret for the server-cron route. When empty,
+		// Rasad derives one from the auth salt + site host.
+		'cron_key'            => '',
 		);
 
 		/**
@@ -445,6 +448,14 @@ final class Rasad_Settings {
 		);
 
 		add_settings_field(
+			'cron_key',
+			__( 'کلید کرون (دوريا)', 'rasad' ),
+			array( __CLASS__, 'field_cron_key' ),
+			self::PAGE,
+			'rasad_system'
+		);
+
+		add_settings_field(
 			'endpoint_mode',
 			__( 'نقطهٔ پایانی ردیابی', 'rasad' ),
 			array( __CLASS__, 'field_endpoint_mode' ),
@@ -735,6 +746,19 @@ final class Rasad_Settings {
 		);
 	}
 
+	/**
+	 * Field: rotatable server-cron key.
+	 *
+	 * @return void
+	 */
+	public static function field_cron_key() {
+		printf(
+			'<label>' . __( 'کلید کرون:', 'rasad' ) . ' <input type="text" class="regular-text code" name="%1$s[cron_key]" value="%2$s" /></label>',
+			esc_attr( self::OPTION ),
+			esc_attr( (string) self::get( 'cron_key' ) )
+		);
+		echo '<p class="description">' . esc_html__( 'خالی گذاشتن آن باعث استفاده از کلید استخراجی (هش) می‌شود. تغییر کلید لینک کرون سرور را منقضی می‌کند.', 'rasad' ) . '</p>';
+	}
 	/**
 	 * Field: tracker endpoint mode.
 	 *
@@ -1177,6 +1201,11 @@ final class Rasad_Settings {
 		// Checkboxes.
 		$out['ip_anonymize']      = ! empty( $input['ip_anonymize'] );
 		$out['enforce_origin_get'] = ! empty( $input['enforce_origin_get'] );
+
+		// Cron key: rotatable secret (raw string, trimmed).
+		if ( isset( $input['cron_key'] ) ) {
+			$out['cron_key'] = trim( wp_unslash( (string) $input['cron_key'] ) );
+		}
 
 		if ( isset( $input['endpoint_mode'] ) ) {
 			$out['endpoint_mode'] = in_array( (string) $input['endpoint_mode'], $endpoints, true )
