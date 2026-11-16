@@ -35,7 +35,19 @@ final class Rasad_Settings {
 	 *
 	 * @var string
 	 */
-	const PAGE = 'rasad';
+	/**
+	 * Settings submenu slug (the dashboard owns the top-level `rasad` slug).
+	 *
+	 * @var string
+	 */
+	const PAGE = 'rasad-settings';
+
+	/**
+	 * Top-level dashboard menu slug (also the plugin's canonical screen).
+	 *
+	 * @var string
+	 */
+	const PAGE_DASHBOARD = 'rasad';
 
 	/**
 	 * Required capability (filterable).
@@ -257,29 +269,13 @@ final class Rasad_Settings {
 	 * @return void
 	 */
 	public static function hooks() {
-		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ) );
+		// Menu ownership moved to Rasad_Admin (dashboard = top level,
+		// Settings = submenu); Settings only registers its fields here.
 		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
 
 		// Keep the collect-time mirror in sync with the option.
 		add_action( 'update_option_' . self::OPTION, array( __CLASS__, 'write_mirror' ) );
 		add_action( 'added_option_' . self::OPTION, array( __CLASS__, 'write_mirror' ) );
-	}
-
-	/**
-	 * Top-level admin menu.
-	 *
-	 * @return void
-	 */
-	public static function add_menu() {
-		add_menu_page(
-			__( 'رصد', 'rasad' ),
-			__( 'رصد', 'rasad' ),
-			self::capability(),
-			self::PAGE,
-			array( __CLASS__, 'render_page' ),
-			'dashicons-chart-bar',
-			56
-		);
 	}
 
 	/**

@@ -1,0 +1,275 @@
+/*
+ * Rasad admin dashboard — semantic layout, CSS variables, RTL-first.
+ * Dark mode ships through prefers-color-scheme (final visuals later).
+ */
+
+.rasad-dash {
+	--rasad-bg: #ffffff;
+	--rasad-fg: #1d2327;
+	--rasad-muted: #646970;
+	--rasad-border: #dcdcde;
+	--rasad-panel: #f6f7f7;
+	--rasad-accent: #2271b1;
+	--rasad-accent-soft: rgba(34, 113, 177, 0.12);
+	--rasad-good: #00a32a;
+	--rasad-bad: #d63638;
+	--rasad-radius: 10px;
+
+	color: var(--rasad-fg);
+}
+
+@media (prefers-color-scheme: dark) {
+	.rasad-dash {
+		--rasad-bg: #1d2327;
+		--rasad-fg: #f0f0f1;
+		--rasad-muted: #a7aaad;
+		--rasad-border: #3c434a;
+		--rasad-panel: #2c3338;
+		--rasad-accent: #72aee6;
+		--rasad-accent-soft: rgba(114, 174, 230, 0.14);
+		--rasad-good: #68de7c;
+		--rasad-bad: #ff7b83;
+	}
+}
+
+.rasad-dash .rasad-title {
+	margin-bottom: 16px;
+}
+
+/* Toolbar ------------------------------------------------------------- */
+
+.rasad-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.rasad-ranges {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.rasad-range {
+	background: var(--rasad-bg);
+	color: var(--rasad-fg);
+	border: 1px solid var(--rasad-border);
+	border-radius: 999px;
+	padding: 6px 14px;
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1.6;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.rasad-range:hover {
+	border-color: var(--rasad-accent);
+}
+
+.rasad-range.is-active {
+	background: var(--rasad-accent);
+	border-color: var(--rasad-accent);
+	color: #fff;
+}
+
+.rasad-custom-range {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-inline-start: auto;
+}
+
+.rasad-custom-range input[type="date"] {
+	background: var(--rasad-bg);
+	color: var(--rasad-fg);
+	border: 1px solid var(--rasad-border);
+	border-radius: 6px;
+	padding: 5px 8px;
+}
+
+.rasad-status {
+	flex-basis: 100%;
+	margin: 0;
+	min-height: 1.4em;
+	color: var(--rasad-muted);
+	font-size: 13px;
+}
+
+.rasad-status.is-error {
+	color: var(--rasad-bad);
+}
+
+/* Cards --------------------------------------------------------------- */
+
+.rasad-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.rasad-card {
+	background: var(--rasad-panel);
+	border: 1px solid var(--rasad-border);
+	border-radius: var(--rasad-radius);
+	padding: 14px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.rasad-card-label {
+	color: var(--rasad-muted);
+	font-size: 12.5px;
+}
+
+.rasad-card-value {
+	font-size: 26px;
+	font-weight: 650;
+	letter-spacing: 0.2px;
+}
+
+.rasad-card-delta {
+	font-size: 12px;
+	color: var(--rasad-muted);
+	direction: rtl;
+}
+
+.rasad-card-delta.is-up {
+	color: var(--rasad-good);
+}
+
+.rasad-card-delta.is-down {
+	color: var(--rasad-bad);
+}
+
+/* Panels & tables ----------------------------------------------------- */
+
+.rasad-panel {
+	background: var(--rasad-bg);
+	border: 1px solid var(--rasad-border);
+	border-radius: var(--rasad-radius);
+	padding: 16px;
+	margin-bottom: 16px;
+}
+
+.rasad-panel-title {
+	margin: 0 0 12px;
+	font-size: 15px;
+}
+
+.rasad-panel-subtitle {
+	margin: 16px 0 8px;
+	font-size: 13.5px;
+	color: var(--rasad-muted);
+}
+
+.rasad-panels {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+	gap: 16px;
+}
+
+.rasad-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+}
+
+.rasad-table th,
+.rasad-table td {
+	text-align: start;
+	padding: 7px 8px;
+	border-bottom: 1px solid var(--rasad-border);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 260px;
+}
+
+.rasad-table th {
+	color: var(--rasad-muted);
+	font-weight: 600;
+}
+
+.rasad-table tr:last-child td {
+	border-bottom: 0;
+}
+
+.rasad-table .rasad-empty {
+	color: var(--rasad-muted);
+	font-style: italic;
+	padding: 12px 8px;
+}
+
+/* Referrer group chips ------------------------------------------------ */
+
+.rasad-ref-groups {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.rasad-chip {
+	background: var(--rasad-accent-soft);
+	color: var(--rasad-accent);
+	border-radius: 999px;
+	padding: 4px 12px;
+	font-size: 12.5px;
+}
+
+.rasad-chip strong {
+	margin-inline-start: 6px;
+}
+
+/* Chart --------------------------------------------------------------- */
+
+.rasad-chart {
+	width: 100%;
+	overflow-x: auto;
+}
+
+.rasad-chart svg {
+	width: 100%;
+	height: auto;
+	display: block;
+}
+
+.rasad-chart .rasad-grid-line {
+	stroke: var(--rasad-border);
+	stroke-width: 1;
+}
+
+.rasad-chart .rasad-line-views {
+	stroke: var(--rasad-accent);
+	stroke-width: 2;
+	fill: none;
+}
+
+.rasad-chart .rasad-area-views {
+	fill: var(--rasad-accent-soft);
+	stroke: none;
+}
+
+.rasad-chart .rasad-line-visitors {
+	stroke: var(--rasad-muted);
+	stroke-width: 1.6;
+	fill: none;
+	stroke-dasharray: 4 3;
+}
+
+.rasad-chart .rasad-axis-label {
+	fill: var(--rasad-muted);
+	font-size: 11px;
+}
+
+.rasad-chart .rasad-legend-chip {
+	font-size: 12px;
+}
+
+.rasad-noscript {
+	color: var(--rasad-bad);
+}

@@ -84,6 +84,11 @@ final class Rasad_Plugin {
 		Rasad_Settings::hooks();
 		Rasad_Api_Rest::hooks();
 
+		// Admin screens (lazy): admin_menu / admin_enqueue_scripts fire only
+		// inside wp-admin, so front-end requests never load class-admin.php.
+		add_action( 'admin_menu', array( 'Rasad_Admin', 'admin_menu' ) );
+		add_action( 'admin_enqueue_scripts', array( 'Rasad_Admin', 'enqueue' ) );
+
 		// Aggregation pipeline. Callbacks stay lazy: the process/aggregator
 		// classes load only when their hook actually fires (cron request,
 		// first beacon with a backlog, WP-CLI).
