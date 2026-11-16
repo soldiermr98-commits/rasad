@@ -1,0 +1,591 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: rasad 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-16 06:00+0000\n"
+"PO-Revision-Date: 2026-11-16 06:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Rasad\n"
+"X-Domain: rasad\n"
+"Domain-Path: /languages\n"
+
+#: includes/admin/class-admin.php:155
+msgid "رصد — آمار بازدید"
+msgstr ""
+
+#: includes/admin/class-admin.php:162
+msgid "آمار"
+msgstr ""
+
+#: includes/admin/class-admin.php:165
+msgid "زنده"
+msgstr ""
+
+#: includes/admin/class-admin.php:182
+msgid "بازهٔ زمانی"
+msgstr ""
+
+#: includes/admin/class-admin.php:184
+msgid "امروز"
+msgstr ""
+
+#: includes/admin/class-admin.php:185
+msgid "دیروز"
+msgstr ""
+
+#: includes/admin/class-admin.php:186
+msgid "۷ روز"
+msgstr ""
+
+#: includes/admin/class-admin.php:187
+msgid "۳۰ روز"
+msgstr ""
+
+#: includes/admin/class-admin.php:188
+msgid "۹۰ روز"
+msgstr ""
+
+#: includes/admin/class-admin.php:193
+msgid "از"
+msgstr ""
+
+#: includes/admin/class-admin.php:194
+msgid "تا"
+msgstr ""
+
+#: includes/admin/class-admin.php:196
+msgid "اعمال"
+msgstr ""
+
+#: includes/admin/class-admin.php:199
+msgid "داشبورد"
+msgstr ""
+
+#: includes/admin/class-admin.php:205
+msgid "بازدیدها"
+msgstr ""
+
+#: includes/admin/class-admin.php:209
+msgid "بازدیدکنندگان"
+msgstr ""
+
+#: includes/admin/class-admin.php:213
+msgid "نشست‌ها"
+msgstr ""
+
+#: includes/admin/class-admin.php:217
+msgid "نرخ پرش"
+msgstr ""
+
+#: includes/admin/class-admin.php:221
+msgid "میانگین مدت"
+msgstr ""
+
+#: includes/admin/class-admin.php:229
+msgid "روند بازدید"
+msgstr ""
+
+#: includes/admin/class-admin.php:235
+msgid "برترین صفحات"
+msgstr ""
+
+#: includes/admin/class-admin.php:239
+msgid "صفحه"
+msgstr ""
+
+#: includes/admin/class-admin.php:240
+msgid "بازدید"
+msgstr ""
+
+#: includes/admin/class-admin.php:241
+msgid "بازدیدکننده"
+msgstr ""
+
+#: includes/admin/class-admin.php:247
+msgid "صفحات ورود و خروج"
+msgstr ""
+
+#: includes/admin/class-admin.php:249
+msgid "ورود"
+msgstr ""
+
+#: includes/admin/class-admin.php:250
+msgid "تعداد"
+msgstr ""
+
+#: includes/admin/class-admin.php:255
+msgid "خروج"
+msgstr ""
+
+#: includes/admin/class-admin.php:265
+msgid "ارجاع‌دهندگان"
+msgstr ""
+
+#: includes/admin/class-admin.php:269
+msgid "منبع"
+msgstr ""
+
+#: includes/admin/class-admin.php:277
+msgid "جستجوی داخلی سایت"
+msgstr ""
+
+#: includes/admin/class-admin.php:279
+msgid "عبارت"
+msgstr ""
+
+#: includes/admin/class-admin.php:288
+msgid "روند بازدید و کاربران یکتا"
+msgstr ""
+
+#: includes/admin/class-admin.php:291
+msgid "تفکیک روزانه ترافیک ورودی در مقایسه با هفته ماقبل"
+msgstr ""
+
+#: includes/admin/class-admin.php:298
+msgid "دوره فعلی"
+msgstr ""
+
+#: includes/admin/class-admin.php:302
+msgid "دوره قبل"
+msgstr ""
+
+#: includes/admin/class-admin.php:307
+msgid "ساعتی"
+msgstr ""
+
+#: includes/admin/class-admin.php:308
+msgid "روزانه"
+msgstr ""
+
+#: includes/admin/class-admin.php:334
+msgid "آخرین رویدادها"
+msgstr ""
+
+#: includes/admin/class-admin.php:342
+msgid "زمان"
+msgstr ""
+
+#: includes/admin/class-admin.php:343
+msgid "صفحه"
+msgstr ""
+
+#: includes/admin/class-admin.php:344
+msgid "بازدیدکننده"
+msgstr ""
+
+#: includes/admin/class-admin.php:345
+msgid "کشور"
+msgstr ""
+
+#: includes/admin/class-admin.php:346
+msgid "ارجاع"
+msgstr ""
+
+#: includes/admin/class-admin.php:363
+msgid "برای نمایش داشبورد به جاوااسکریپت نیاز است."
+msgstr ""
+
+#: includes/admin/class-admin.php:404
+msgid "بازدیدکنندهٔ آنلاین"
+msgstr ""
+
+#: includes/admin/class-admin.php:405
+msgid "به‌روزرسانی خودکار هر ۱۵ ثانیه"
+msgstr ""
+
+#: includes/admin/class-admin.php:425
+msgid "بارگذاری…"
+msgstr ""
+
+#: includes/admin/class-admin.php:426
+msgid "به‌روز"
+msgstr ""
+
+#: includes/admin/class-admin.php:427
+msgid "خطا در بارگذاری"
+msgstr ""
+
+#: includes/admin/class-dashboard-widget.php:61
+msgid "رصد — آمار بازدید"
+msgstr ""
+
+#: includes/admin/class-post-column.php:80
+msgid "بازدیدها"
+msgstr ""
+
+#: includes/class-installer.php:43
+msgid "دسترسی غیرمجاز."
+msgstr ""
+
+#: includes/class-settings.php:115
+msgid "عمومی"
+msgstr ""
+
+#: includes/class-settings.php:116
+msgid "ردیابی"
+msgstr ""
+
+#: includes/class-settings.php:117
+msgid "سیستم"
+msgstr ""
+
+#: includes/class-settings.php:118
+msgid "پایگاه دادهٔ GeoIP"
+msgstr ""
+
+#: includes/class-settings.php:120
+msgid "درایور بافر"
+msgstr ""
+
+#: includes/class-settings.php:121
+msgid "«خودکار» بهترین گزینهٔ در دسترس را انتخاب می‌کند."
+msgstr ""
+
+#: includes/class-settings.php:127
+msgid "اندازهٔ دستهٔ پردازش"
+msgstr ""
+
+#: includes/class-settings.php:128
+msgid "تعداد رویدادهای پردازش‌شده در هر نوبت جمع‌آوری (۱۰۰ تا ۵۰۰۰)."
+msgstr ""
+
+#: includes/class-settings.php:135
+msgid "مدت نگهداری داده‌های خام"
+msgstr ""
+
+#: includes/class-settings.php:136
+msgid "روز نگهداری جدول‌های خام (hits/sessions). خلاصه‌ها همیشه می‌مانند."
+msgstr ""
+
+#: includes/class-settings.php:142
+msgid "فیلتر ربات‌ها"
+msgstr ""
+
+#: includes/class-settings.php:143
+msgid "بازدید ربات‌ها و خزنده‌ها ثبت نشود"
+msgstr ""
+
+#: includes/class-settings.php:149
+msgid "Do Not Track"
+msgstr ""
+
+#: includes/class-settings.php:150
+msgid "درخواست Do Not Track مرورگرها را رعایت کن"
+msgstr ""
+
+#: includes/class-settings.php:156
+msgid "نقش‌های مستثنی"
+msgstr ""
+
+#: includes/class-settings.php:157
+msgid "بازدید کاربران با این نقش‌ها ثبت نمی‌شود."
+msgstr ""
+
+#: includes/class-settings.php:163
+msgid "IPهای مستثنی"
+msgstr ""
+
+#: includes/class-settings.php:164
+msgid "هر خط یک نشانی IP."
+msgstr ""
+
+#: includes/class-settings.php:170
+msgid "آدرس‌های مستثنی"
+msgstr ""
+
+#: includes/class-settings.php:171
+msgid "هر خط یک بخش از آدرس که با / شروع می‌شود."
+msgstr ""
+
+#: includes/class-settings.php:177
+msgid "User-Agentهای مستثنی"
+msgstr ""
+
+#: includes/class-settings.php:178
+msgid "هر خط یک قطعه از رشتهٔ User-Agent."
+msgstr ""
+
+#: includes/class-settings.php:184
+msgid "منبع آدرس IP"
+msgstr ""
+
+#: includes/class-settings.php:185
+msgid "منبع استفاده‌شده برای شناسهٔ بازدیدکننده. «خودکار» فقط وقتی هدرهای منتقل‌شده را اعتماد می‌کند که آدرس REMOTE_ADDR در لیست پروکسی‌های معتبر است."
+msgstr ""
+
+#: includes/class-settings.php:191
+msgid "پروکسی‌های معتبر (CIDR)"
+msgstr ""
+
+#: includes/class-settings.php:192
+msgid "هر خط یک نشانی IP یا محدودهٔ CIDR. فقط در حالت «خودکار» مورد بررسی قرار می‌گیرد."
+msgstr ""
+
+#: includes/class-settings.php:198
+msgid "پارا미터های مجاز در پرس‌وجستجو (اضافه)"
+msgstr ""
+
+#: includes/class-settings.php:199
+msgid "به علاوهٔ فهرست پیش‌فرض (s, paged, page_id, p, cat, tag, post_type, product_cat). هر خط یک نام پارامتر."
+msgstr ""
+
+#: includes/class-settings.php:205
+msgid "سقف مسیر جدید در روز"
+msgstr ""
+
+#: includes/class-settings.php:206
+msgid "حداکثر مسیر جدید در هر روز؛ بقیه به \"/other\" جمع می‌شوند. ۰ = غیرفعال."
+msgstr ""
+
+#: includes/class-settings.php:212
+msgid "سقف مسیر جدید در ساعت"
+msgstr ""
+
+#: includes/class-settings.php:213
+msgid "حداکثر مسیر جدید در هر ساعت؛ بقیه به \"/other\" جمع می‌شوند. ۰ = غیرفعال."
+msgstr ""
+
+#: includes/class-settings.php:219
+msgid "ناشناس‌سازی آدرس IP در بافر"
+msgstr ""
+
+#: includes/class-settings.php:220
+msgid "آخرین بایت IPv4 / آخرین ۸۰ بیت IPv6 در بافر را پاک کند (تأثیر روی GeoIP)"
+msgstr ""
+
+#: includes/class-settings.php:226
+msgid "میزبان‌های مجاز (same-origin)"
+msgstr ""
+
+#: includes/class-settings.php:227
+msgid "هر خط یک میزبان. www. حذف شده و مقایسه می‌شود؛ برای multisite و domain mapping."
+msgstr ""
+
+#: includes/class-settings.php:233
+msgid "اجرای اصالت‌سنجی بر روی پیکس GET"
+msgstr ""
+
+#: includes/class-settings.php:234
+msgid "برای مسیر پیکس GET (?d=1&b=) هم اصالت‌سنجی Origin/Referer اجرا شود"
+msgstr ""
+
+#: includes/class-settings.php:240
+msgid "نقطهٔ پایانی ردیابی"
+msgstr ""
+
+#: includes/class-settings.php:241
+msgid "«خودکار» ابتدا collect.php و در صورت نبود، مسیر REST را انتخاب می‌کند."
+msgstr ""
+
+#: includes/class-settings.php:247
+msgid "تقویم"
+msgstr ""
+
+#: includes/class-settings.php:253
+msgid "حذف داده‌ها هنگام حذف افزونه"
+msgstr ""
+
+#: includes/class-settings.php:254
+msgid "با حذف افزونه، همهٔ جدول‌ها و داده‌های رصد نیز حذف شوند"
+msgstr ""
+
+#: includes/class-settings.php:266
+msgid "خودکار"
+msgstr ""
+
+#: includes/class-settings.php:267
+msgid "Redis / Memcached"
+msgstr ""
+
+#: includes/class-settings.php:268
+msgid "APCu"
+msgstr ""
+
+#: includes/class-settings.php:269
+msgid "فایل (پیش‌فرض اشتراکی)"
+msgstr ""
+
+#: includes/class-settings.php:2610
+msgid "پایگاه داده"
+msgstr ""
+
+#: includes/class-settings.php:2611
+msgid "خودکار"
+msgstr ""
+
+#: includes/class-settings.php:2612
+msgid "collect.php"
+msgstr ""
+
+#: includes/class-settings.php:2613
+msgid "REST API"
+msgstr ""
+
+#: includes/class-settings.php:2614
+msgid "شمسی"
+msgstr ""
+
+#: includes/class-settings.php:2615
+msgid "میلادی"
+msgstr ""
+
+#: includes/class-settings.php:2616
+msgid "REMOTE_ADDR (پیش‌فرض)"
+msgstr ""
+
+#: includes/class-settings.php:2617
+msgid "CF-Connecting-IP"
+msgstr ""
+
+#: includes/class-settings.php:2618
+msgid "X-Forwarded-For (اولین IPعمومی)"
+msgstr ""
+
+#: includes/class-settings.php:2619
+msgid "X-Real-IP"
+msgstr ""
+
+#: includes/class-settings.php:2620
+msgid "خودکار (فقط derrière پروکسی معتبر)"
+msgstr ""
+
+#: includes/class-settings.php:277
+msgid "تنظیمات رصد"
+msgstr ""
+
+#: includes/class-settings.php:278
+msgid "ذخیرهٔ تنظیمات"
+msgstr ""
+
+#: includes/class-settings.php:280
+msgid "بررسی سلامت"
+msgstr ""
+
+#: includes/class-settings.php:281
+msgid "درایور بافر"
+msgstr ""
+
+#: includes/class-settings.php:282
+msgid "حقیقهٔ بافر"
+msgstr ""
+
+#: includes/class-settings.php:283
+msgid "رویداد"
+msgstr ""
+
+#: includes/class-settings.php:284
+msgid "منبع IP"
+msgstr ""
+
+#: includes/class-settings.php:285
+msgid "پروکسی‌های معتبر"
+msgstr ""
+
+#: includes/class-settings.php:286
+msgid "میزبان‌های مجاز"
+msgstr ""
+
+#: includes/class-settings.php:287
+msgid "به‌روزرسانی تجمیعی (کرون)"
+msgstr ""
+
+#: includes/class-settings.php:288
+msgid "آخرین جمع‌آوری"
+msgstr ""
+
+#: includes/class-settings.php:289
+msgid "فعال نیست"
+msgstr ""
+
+#: includes/class-settings.php:290
+msgid "هرگز اجرا نشده"
+msgstr ""
+
+#: includes/class-settings.php:291
+msgid "مشکلات شناسایی‌شده"
+msgstr ""
+
+#: includes/class-settings.php:292
+msgid "هیچ مشکلی شناسایی نشد."
+msgstr ""
+
+#: includes/class-settings.php:293
+msgid "آدرس شناسهٔ بازدیدکننده در هر درخواست از روی منبع IP انتخاب‌شده استخراج و (در صورت فعال بودن ناشناس‌سازی) در بافر ذخیره می‌شود."
+msgstr ""
+
+#: includes/class-settings.php:306
+msgid "پایگاه دادهٔ GeoIP با موفقیت دانلود و نصب شد."
+msgstr ""
+
+#: includes/class-settings.php:308
+msgid "خطا در دانلود: %s"
+msgstr ""
+
+#: includes/class-settings.php:309
+msgid "خطا در دانلود GeoIP."
+msgstr ""
+
+#: includes/class-settings.php:313
+msgid "پایگاه دادهٔ GeoIP حذف شد."
+msgstr ""
+
+#: includes/class-settings.php:316
+msgid "دسترسی غیرمjaz."
+msgstr ""
+
+#: includes/class-settings.php:320
+msgid "نصب نشده."
+msgstr ""
+
+#: includes/class-settings.php:323
+msgid "فایل موجود اما خراب است."
+msgstr ""
+
+#: includes/class-settings.php:328
+msgid "نصب‌شده (%s، بروزرسانی: %s)."
+msgstr ""
+
+#: includes/class-settings.php:331
+msgid "حذف"
+msgstr ""
+
+#: includes/class-settings.php:332
+msgid "دانلود"
+msgstr ""
+
+#: includes/class-settings.php:337
+msgid "فایل‌ها از DB-IP Lite (ماهانه) دانلود و در پوشهٔ data/ نگهداری می‌شوند؛ جستجوی موقعیت فقط داخل پردازش تجمیعی انجام می‌شود و مسیر دانلود با فیلتر rasad_geoip_download_url قابل تغییر است."
+msgstr ""
+
+#: includes/class-settings.php:342
+msgid "شما اجازهٔ دسترسی به این صفحه را ندارید."
+msgstr ""
+
+#: includes/class-settings.php:343
+msgid "بافر پر است (%s رویداد در انتظار پردازش)."
+msgstr ""
+
+#: includes/class-settings.php:344
+msgid "آخرین جمع‌آوری بیش از یک ساعت پیش است."
+msgstr ""
+
+#: includes/class-settings.php:345
+msgid "زمان‌بندی کرون فعال نیست — جمع‌آوری خودکار اجرا نمی‌شود."
+msgstr ""
+
+#: includes/class-settings.php:346
+msgid "پوشهٔ ذخیره‌سازی قابل نوشتن نیست."
+msgstr ""
+
+#: includes/class-settings.php:347
+msgid "درایور بافر در دسترس نیست — بازدیدها حذف می‌شوند."
+msgstr ""
+
+#: includes/class-settings.php:358
+msgid "بازدیدهایRAW"
+msgstr ""

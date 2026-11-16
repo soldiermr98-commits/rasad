@@ -74,6 +74,9 @@ final class Rasad_Process_Aggregator {
 	/** Search-result page ids (per run). */
 	private static $search_pages = null;
 
+	/** WooCommerce events awaiting rsd_events write (per run). */
+	private static $events_seen = array();
+
 	/*
 	|--------------------------------------------------------------------------
 	| Hooks & triggers
@@ -339,6 +342,7 @@ final class Rasad_Process_Aggregator {
 		self::$sessions_seen = array();
 		self::$affected    = array();
 		self::$search_pages = null;
+		self::$events_seen = array();
 
 		$batch_size = (int) Rasad_Settings::get( 'aggregate_batch' );
 		$batch_size = max( 100, min( 5000, $batch_size ? $batch_size : 1000 ) );
@@ -446,6 +450,26 @@ final class Rasad_Process_Aggregator {
 				continue;
 			}
 
+			// WooCommerce events (3=product view, 4=add to cart, 5=checkout, 6=purchase)
+			// bypass session/pageview processing and go straight to rsd_events.
+			if ( in_array( $event, array( 3, 4, 5, 6 ), true ) ) {
+				$path = isset( $hit['p'] ) && is_string( $hit['p'] ) ? $hit['p'] : '';
+
+				if ( '' === $path || '/' !== $path[0] || strlen( $path ) > 500 ) {
+					continue;
+				}
+
+				self::$events_seen[] = array(
+					'ts' => $ts,
+					'p'  => $path,
+					'e'  => $event,
+					'v'  => isset( $hit['wc_value'] ) ? (float) $hit['wc_value'] : 0.0,
+				);
+
+				self::mark_day( $ts );
+				continue;
+			}
+
 			$path = isset( $hit['p'] ) && is_string( $hit['p'] ) ? $hit['p'] : '';
 
 			if ( '' === $path || '/' !== $path[0] || strlen( $path ) > 500 ) {
@@ -523,6 +547,9 @@ final class Rasad_Process_Aggregator {
 
 		self::insert_hits( $hit_rows );
 		self::apply_pings( $pings );
+
+		// Persist WooCommerce events to rsd_events (written once, never recomputed).
+		self::insert_events( self::$events_seen );
 
 		return count( $views ) + count( $pings );
 	}
@@ -831,6 +858,49 @@ final class Rasad_Process_Aggregator {
 			$sql = $wpdb->prepare(
 				'INSERT INTO ' . Rasad_Installer::table( 'hits' )
 				. ' (session_id, page_id, ts) VALUES ' . implode( ', ', $ph ),
+				$values
+			);
+			$wpdb->query( $sql );
+		}
+	}
+
+	/**
+	 * Writes WooCommerce events to rsd_events.
+	 * Events are written once when popped from the buffer — they are not
+	 * part of the day-recompute cycle (rsd_hits lacks WooCommerce fields).
+	 *
+	 * @param array<int,array{ts:int,p:string,e:int,v:float}> $events Event records.
+	 * @return void
+	 */
+	private static function insert_events( array $events ) {
+		if ( empty( $events ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$table = Rasad_Installer::table( 'events' );
+
+		foreach ( array_chunk( $events, 500 ) as $chunk ) {
+			$values = array();
+			$ph     = array();
+
+			foreach ( $chunk as $event ) {
+				$day   = self::local_day( $event['ts'] );
+				// Resolve the path to a page id (product/cart/checkout pages when possible).
+				$page_id = self::resolve_page( $event['p'], '' );
+				$type  = (string) $event['e'];
+				$value = $event['v'];
+
+				$values[] = $day;
+				$values[] = $type;
+				$values[] = $page_id;
+				$values[] = $value;
+				$ph[]     = '(%s, %s, %s, %s)';
+			}
+
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
+			$sql = $wpdb->prepare(
+				'INSERT INTO ' . $table . ' (day, type, page_id, value) VALUES ' . implode( ', ', $ph ),
 				$values
 			);
 			$wpdb->query( $sql );
