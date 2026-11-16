@@ -911,25 +911,20 @@ final class Rasad_Settings {
 	 * @return void
 	 */
 	public static function render_health_panel() {
-		$settings = self::all();
-		$buffer   = Rasad_Plugin::buffer();
-		$driver   = get_class( $buffer );
-		$driver   = substr( $driver, strrpos( $driver, '_' ) + 1 );
-		$backlog  = (int) $buffer->count();
+		$health = Rasad_Process_Health::report();
 
-		$ip_source = isset( $settings['ip_source'] ) ? $settings['ip_source'] : 'remote_addr';
-		$proxies   = isset( $settings['trusted_proxies'] ) && is_array( $settings['trusted_proxies'] )
-			? implode( ', ', $settings['trusted_proxies'] )
-			: __( 'هیچ‌کدام', 'rasad' );
-		$hosts     = self::trusted_hosts();
-		$hosts_txt = empty( $hosts )
+		$proxies = empty( $health['trusted_proxies'] )
+			? __( 'هیچ‌کدام', 'rasad' )
+			: implode( ', ', $health['trusted_proxies'] );
+		$hosts   = empty( $health['trusted_hosts'] )
 			? __( 'فقط میزبان سایت', 'rasad' )
-			: implode( ', ', $hosts );
-
-		$cron = wp_next_scheduled( RASAD_CRON_HOOK );
-		$cron_txt = false === $cron
+			: implode( ', ', $health['trusted_hosts'] );
+		$cron    = false === $health['cron_next']
 			? __( 'فعال نیست', 'rasad' )
-			: date_i18n( 'Y-m-d H:i:s', (int) $cron );
+			: date_i18n( 'Y-m-d H:i:s', (int) $health['cron_next'] );
+		$agg     = false === $health['last_aggregation']
+			? __( 'هرگز اجرا نشده', 'rasad' )
+			: date_i18n( 'Y-m-d H:i:s', (int) $health['last_aggregation'] );
 
 		?>
 		<div class="rasad-health" style="margin-top:24px;padding:16px;border:1px solid #ccc;background:#f9f9f9;direction:rtl;">
@@ -937,15 +932,15 @@ final class Rasad_Settings {
 			<table class="form-table" style="width:auto;">
 				<tr>
 					<th scope="row"><?php esc_html_e( 'درایور بافر', 'rasad' ); ?></th>
-					<td><?php echo esc_html( ucfirst( $driver ) ); ?></td>
+					<td><?php echo esc_html( $health['buffer_driver'] ); ?></td>
 				</tr>
 				<tr>
 					<th scope="row"><?php esc_html_e( 'حقیقهٔ بافر', 'rasad' ); ?></th>
-					<td><?php echo absint( $backlog ); ?> <?php esc_html_e( 'رویداد', 'rasad' ); ?></td>
+					<td><?php echo absint( $health['backlog'] ); ?> <?php esc_html_e( 'رویداد', 'rasad' ); ?></td>
 				</tr>
 				<tr>
 					<th scope="row"><?php esc_html_e( 'منبع IP', 'rasad' ); ?></th>
-					<td><?php echo esc_html( $ip_source ); ?></td>
+					<td><?php echo esc_html( $health['ip_source'] ); ?></td>
 				</tr>
 				<tr>
 					<th scope="row"><?php esc_html_e( 'پروکسی‌های معتبر', 'rasad' ); ?></th>
@@ -953,18 +948,35 @@ final class Rasad_Settings {
 				</tr>
 				<tr>
 					<th scope="row"><?php esc_html_e( 'میزبان‌های مجاز', 'rasad' ); ?></th>
-					<td><?php echo esc_html( $hosts_txt ); ?></td>
+					<td><?php echo esc_html( $hosts ); ?></td>
 				</tr>
 				<tr>
-					<th scope="row"><?php esc_html_e( 'به‌روزرسانی تجمیعی (크ون)', 'rasad' ); ?></th>
-					<td><?php echo esc_html( $cron_txt ); ?></td>
+					<th scope="row"><?php esc_html_e( 'به‌روزرسانی تجمیعی (کرون)', 'rasad' ); ?></th>
+					<td><?php echo esc_html( $cron ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'آخرین جمع‌آوری', 'rasad' ); ?></th>
+					<td><?php echo esc_html( $agg ); ?></td>
 				</tr>
 			</table>
+
+			<?php if ( ! empty( $health['problems'] ) ) : ?>
+				<h3><?php esc_html_e( 'مشکلات شناسایی‌شده', 'rasad' ); ?></h3>
+				<ul>
+					<?php foreach ( $health['problems'] as $problem ) : ?>
+						<li class="rasad-health-<?php echo esc_attr( $problem['level'] ); ?>">
+							<?php echo esc_html( $problem['msg'] ); ?>
+						</li>
+					<?php endforeach; ?>
+				</ul>
+			<?php else : ?>
+				<p class="description"><?php esc_html_e( 'هیچ مشکلی شناسایی نشد.', 'rasad' ); ?></p>
+			<?php endif; ?>
+
 			<p class="description"><?php esc_html_e( 'آدرس شناسهٔ بازدیدکننده در هر درخواست از روی منبع IP انتخاب‌شده استخراج و (در صورت فعال بودن ناشناس‌سازی) در بافر ذخیره می‌شود.', 'rasad' ); ?></p>
 		</div>
 		<?php
 	}
-
 	/*
 	|--------------------------------------------------------------------------
 	| Sanitization

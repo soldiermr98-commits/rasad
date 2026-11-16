@@ -36,6 +36,7 @@ final class Rasad_Installer {
 		'daily_pages',
 		'daily_dim',
 		'events',
+		'buffer',
 	);
 
 	/**
@@ -279,6 +280,7 @@ final class Rasad_Installer {
 	private static function migrations() {
 		return array(
 			'1.0.0' => 'migrate_1_0_0',
+			'1.1.0' => 'migrate_1_1_0',
 		);
 	}
 
@@ -288,6 +290,16 @@ final class Rasad_Installer {
 	 * @return void
 	 */
 	public static function migrate_1_0_0() {
+		self::create_tables();
+	}
+
+	/**
+	 * Migration 1.1.0: adds the rsd_buffer table for the DB fallback
+	 * buffer driver (Phase 6).
+	 *
+	 * @return void
+	 */
+	public static function migrate_1_1_0() {
 		self::create_tables();
 	}
 
@@ -434,6 +446,9 @@ final class Rasad_Installer {
   PRIMARY KEY  (id),
   KEY day_type (day,type)
 ) ENGINE=InnoDB {$charset_collate};";
+
+		// Buffer: transient hit queue for the DB fallback driver.
+		$schema['buffer'] = "CREATE TABLE {$t['buffer']} (  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,  hit LONGTEXT NOT NULL,  created_at INT UNSIGNED NOT NULL,  PRIMARY KEY  (id),  KEY created_at (created_at)) ENGINE=InnoDB {$charset_collate};";
 
 		/**
 		 * Filters the CREATE TABLE statements before dbDelta runs.
