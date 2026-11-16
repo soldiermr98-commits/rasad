@@ -136,8 +136,11 @@ final class Rasad_Api_Rest {
 			}
 		}
 
-		$code     = Rasad_Collect_Request::process( $raw );
-		$response = new WP_REST_Response( null, $code );
+	// Public contract: always 204. The real outcome is only in X-Rasad-Status
+	// (diag mode). Keep 4xx/5xx out of the browser console.
+	Rasad_Collect_Request::process( $raw );
+	$code     = 204;
+	$response = new WP_REST_Response( null, $code );
 
 		// Diagnostic header: only with WP_DEBUG or a valid self-test key.
 		if ( Rasad_Collect_Request::diag_requested() ) {

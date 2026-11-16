@@ -82,6 +82,21 @@ final class Rasad_Settings {
 			'endpoint_mode'       => 'auto',
 			'calendar'            => 'jalali',
 			'delete_on_uninstall' => false,
+		// IP source: remote_addr | cf_connecting_ip | x_forwarded_for | x_real_ip | auto.
+		'ip_source'           => 'remote_addr',
+		// CIDR list of trusted proxies whose forwarded headers we honor.
+		'trusted_proxies'     => array(),
+		// Query-string: extra params to keep beyond the hard whitelist.
+		'query_string_whitelist' => array(),
+		// Max distinct new page paths per day / per hour before /other.
+		'query_string_cap_day'   => 1000,
+		'query_string_cap_hour'  => 100,
+		// same_origin() allow-list of hosts (www. stripped, multisite-aware).
+		'trusted_hosts'       => array(),
+		// Enforce Origin/Referer on the GET pixel path (?d=1&b=).
+		'enforce_origin_get'  => true,
+		// Anonymize IP in the buffer line (zero last octet / last 80 bits).
+		'ip_anonymize'        => true,
 		);
 
 		/**
@@ -369,6 +384,64 @@ final class Rasad_Settings {
 		);
 
 		add_settings_field(
+			'ip_source',
+			__( 'منبع آدرس IP', 'rasad' ),
+			array( __CLASS__, 'field_ip_source' ),
+			self::PAGE,
+			'rasad_tracking'
+		);
+		add_settings_field(
+			'trusted_proxies',
+			__( 'پروکسی‌های معتبر (CIDR)', 'rasad' ),
+			array( __CLASS__, 'field_trusted_proxies' ),
+			self::PAGE,
+			'rasad_tracking'
+		);
+		add_settings_field(
+			'query_string_whitelist',
+			__( 'پارا미터های مجاز در پرس‌وجستجو (اضافه)', 'rasad' ),
+			array( __CLASS__, 'field_query_string_whitelist' ),
+			self::PAGE,
+			'rasad_tracking'
+		);
+		add_settings_field(
+			'query_string_cap_day',
+			__( 'سقف مسیر جدید در روز', 'rasad' ),
+			array( __CLASS__, 'field_query_string_cap_day' ),
+			self::PAGE,
+			'rasad_tracking'
+		);
+		add_settings_field(
+			'query_string_cap_hour',
+			__( 'سقف مسیر جدید در ساعت', 'rasad' ),
+			array( __CLASS__, 'field_query_string_cap_hour' ),
+			self::PAGE,
+			'rasad_tracking'
+		);
+		add_settings_field(
+			'ip_anonymize',
+			__( 'ناشناس‌سازی آدرس IP در بافر', 'rasad' ),
+			array( __CLASS__, 'field_ip_anonymize' ),
+			self::PAGE,
+			'rasad_tracking'
+		);
+
+		add_settings_field(
+			'trusted_hosts',
+			__( 'میزبان‌های مجاز (same-origin)', 'rasad' ),
+			array( __CLASS__, 'field_trusted_hosts' ),
+			self::PAGE,
+			'rasad_system'
+		);
+		add_settings_field(
+			'enforce_origin_get',
+			__( 'اجرای اصالت‌سنجی بر روی پیکس GET', 'rasad' ),
+			array( __CLASS__, 'field_enforce_origin_get' ),
+			self::PAGE,
+			'rasad_system'
+		);
+
+		add_settings_field(
 			'endpoint_mode',
 			__( 'نقطهٔ پایانی ردیابی', 'rasad' ),
 			array( __CLASS__, 'field_endpoint_mode' ),
@@ -559,6 +632,106 @@ final class Rasad_Settings {
 		echo '<p class="description">' . esc_html__( 'هر خط یک قطعه از رشتهٔ User-Agent.', 'rasad' ) . '</p>';
 	}
 
+	/* ========================================================================
+	 * New fields: IP source, trusted proxies, query-string policy, health
+	 * ======================================================================== */
+
+	/**
+	 * Field: IP source.
+	 *
+	 * @return void
+	 */
+	public static function field_ip_source() {
+		self::render_radios( self::ip_source_choices(), 'ip_source', 'ip_source' );
+		echo '<p class="description">' . esc_html__( 'منبع استفاده‌شده برای شناسهٔ بازدیدکننده. «خودکار» فقط وقتی هدرهای منتقل‌شده را اعتماد می‌کند که آدرس REMOTE_ADDR در لیست پروکسی‌های معتبر است.', 'rasad' ) . '</p>';
+	}
+
+	/**
+	 * Field: trusted proxies.
+	 *
+	 * @return void
+	 */
+	public static function field_trusted_proxies() {
+		self::render_textarea( 'trusted_proxies', '10.0.0.0/8' );
+		echo '<p class="description">' . esc_html__( 'هر خط یک نشانی IP یا محدودهٔ CIDR. فقط در حالت «خودکار» مورد بررسی قرار می‌گیرد.', 'rasad' ) . '</p>';
+	}
+
+	/**
+	 * Field: query-string extra whitelist.
+	 *
+	 * @return void
+	 */
+	public static function field_query_string_whitelist() {
+		self::render_textarea( 'query_string_whitelist', 'utm_source' );
+		echo '<p class="description">' . esc_html__( 'به علاوهٔ فهرست پیش‌فرض (s, paged, page_id, p, cat, tag, post_type, product_cat). هر خط یک نام پارامتر.', 'rasad' ) . '</p>';
+	}
+
+	/**
+	 * Field: query-string cap per day.
+	 *
+	 * @return void
+	 */
+	public static function field_query_string_cap_day() {
+		printf(
+			'<input type="number" class="small-text" min="0" max="100000" step="10" name="%1$s[query_string_cap_day]" value="%2$s" />',
+			esc_attr( self::OPTION ),
+			esc_attr( (string) self::get( 'query_string_cap_day' ) )
+		);
+		echo '<p class="description">' . esc_html__( 'حداکثر مسیر جدید در هر روز؛ بقیه به "/other" جمع می‌شوند. ۰ = غیرفعال.', 'rasad' ) . '</p>';
+	}
+
+	/**
+	 * Field: query-string cap per hour.
+	 *
+	 * @return void
+	 */
+	public static function field_query_string_cap_hour() {
+		printf(
+			'<input type="number" class="small-text" min="0" max="100000" step="10" name="%1$s[query_string_cap_hour]" value="%2$s" />',
+			esc_attr( self::OPTION ),
+			esc_attr( (string) self::get( 'query_string_cap_hour' ) )
+		);
+		echo '<p class="description">' . esc_html__( 'حداکثر مسیر جدید در هر ساعت؛ بقیه به "/other" جمع می‌شوند. ۰ = غیرفعال.', 'rasad' ) . '</p>';
+	}
+
+	/**
+	 * Field: anonymize IP in buffer.
+	 *
+	 * @return void
+	 */
+	public static function field_ip_anonymize() {
+		printf(
+			'<label><input type="checkbox" name="%1$s[ip_anonymize]" value="1"%2$s /> %3$s</label>',
+			esc_attr( self::OPTION ),
+			checked( (bool) self::get( 'ip_anonymize' ), true, false ),
+			esc_html__( 'آخرین بایت IPv4 / آخرین ۸۰ بیت IPv6 در بافر را پاک کند (تأثیر روی GeoIP)', 'rasad' )
+		);
+	}
+
+	/**
+	 * Field: trusted hosts for same-origin.
+	 *
+	 * @return void
+	 */
+	public static function field_trusted_hosts() {
+		self::render_textarea( 'trusted_hosts', 'www.example.com' );
+		echo '<p class="description">' . esc_html__( 'هر خط یک میزبان. www. حذف شده و مقایسه می‌شود؛ برای multisite و domain mapping.', 'rasad' ) . '</p>';
+	}
+
+	/**
+	 * Field: enforce Origin/Referer on GET pixel.
+	 *
+	 * @return void
+	 */
+	public static function field_enforce_origin_get() {
+		printf(
+			'<label><input type="checkbox" name="%1$s[enforce_origin_get]" value="1"%2$s /> %3$s</label>',
+			esc_attr( self::OPTION ),
+			checked( (bool) self::get( 'enforce_origin_get' ), true, false ),
+			esc_html__( 'برای مسیر پیکس GET (?d=1&b=) هم اصالت‌سنجی Origin/Referer اجرا شود', 'rasad' )
+		);
+	}
+
 	/**
 	 * Field: tracker endpoint mode.
 	 *
@@ -721,9 +894,73 @@ final class Rasad_Settings {
 				settings_errors();
 				settings_fields( self::GROUP );
 				do_settings_sections( self::PAGE );
-				submit_button( __( 'ذخیرهٔ تنظیمات', 'rasad' ) );
-				?>
+		submit_button( __( 'ذخیرهٔ تنظیمات', 'rasad' ) );
+			?>
 			</form>
+		</div>
+
+		<?php self::render_health_panel(); ?>
+
+		<?php
+	}
+
+	/**
+	 * Health-check panel: buffer driver, IP source detection, trusted proxies,
+	 * and aggregate/cron status. Rendered on the settings screen.
+	 *
+	 * @return void
+	 */
+	public static function render_health_panel() {
+		$settings = self::all();
+		$buffer   = Rasad_Plugin::buffer();
+		$driver   = get_class( $buffer );
+		$driver   = substr( $driver, strrpos( $driver, '_' ) + 1 );
+		$backlog  = (int) $buffer->count();
+
+		$ip_source = isset( $settings['ip_source'] ) ? $settings['ip_source'] : 'remote_addr';
+		$proxies   = isset( $settings['trusted_proxies'] ) && is_array( $settings['trusted_proxies'] )
+			? implode( ', ', $settings['trusted_proxies'] )
+			: __( 'هیچ‌کدام', 'rasad' );
+		$hosts     = self::trusted_hosts();
+		$hosts_txt = empty( $hosts )
+			? __( 'فقط میزبان سایت', 'rasad' )
+			: implode( ', ', $hosts );
+
+		$cron = wp_next_scheduled( RASAD_CRON_HOOK );
+		$cron_txt = false === $cron
+			? __( 'فعال نیست', 'rasad' )
+			: date_i18n( 'Y-m-d H:i:s', (int) $cron );
+
+		?>
+		<div class="rasad-health" style="margin-top:24px;padding:16px;border:1px solid #ccc;background:#f9f9f9;direction:rtl;">
+			<h2><?php esc_html_e( 'بررسی سلامت', 'rasad' ); ?></h2>
+			<table class="form-table" style="width:auto;">
+				<tr>
+					<th scope="row"><?php esc_html_e( 'درایور بافر', 'rasad' ); ?></th>
+					<td><?php echo esc_html( ucfirst( $driver ) ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'حقیقهٔ بافر', 'rasad' ); ?></th>
+					<td><?php echo absint( $backlog ); ?> <?php esc_html_e( 'رویداد', 'rasad' ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'منبع IP', 'rasad' ); ?></th>
+					<td><?php echo esc_html( $ip_source ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'پروکسی‌های معتبر', 'rasad' ); ?></th>
+					<td><?php echo esc_html( $proxies ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'میزبان‌های مجاز', 'rasad' ); ?></th>
+					<td><?php echo esc_html( $hosts_txt ); ?></td>
+				</tr>
+				<tr>
+					<th scope="row"><?php esc_html_e( 'به‌روزرسانی تجمیعی (크ون)', 'rasad' ); ?></th>
+					<td><?php echo esc_html( $cron_txt ); ?></td>
+				</tr>
+			</table>
+			<p class="description"><?php esc_html_e( 'آدرس شناسهٔ بازدیدکننده در هر درخواست از روی منبع IP انتخاب‌شده استخراج و (در صورت فعال بودن ناشناس‌سازی) در بافر ذخیره می‌شود.', 'rasad' ); ?></p>
 		</div>
 		<?php
 	}
@@ -785,6 +1022,41 @@ final class Rasad_Settings {
 				isset( $input[ $list_key ] ) ? $input[ $list_key ] : ''
 			);
 		}
+
+		// IP source: must be one of the allowed values.
+		$ip_sources = array_keys( self::ip_source_choices() );
+		if ( isset( $input['ip_source'] ) ) {
+			$out['ip_source'] = in_array( (string) $input['ip_source'], $ip_sources, true )
+				? (string) $input['ip_source']
+				: 'remote_addr';
+		}
+
+		// CIDR lists (trusted proxies / trusted hosts): clean lines only.
+		foreach ( array( 'trusted_proxies', 'trusted_hosts' ) as $list_key ) {
+			$out[ $list_key ] = self::sanitize_lines(
+				isset( $input[ $list_key ] ) ? $input[ $list_key ] : ''
+			);
+		}
+
+		// Query-string extra whitelist: clean lines only.
+		if ( isset( $input['query_string_whitelist'] ) ) {
+			$out['query_string_whitelist'] = self::sanitize_lines(
+				$input['query_string_whitelist']
+			);
+		}
+
+		// Numeric caps: 0 means disabled.
+		if ( isset( $input['query_string_cap_day'] ) ) {
+			$out['query_string_cap_day'] = max( 0, (int) $input['query_string_cap_day'] );
+		}
+
+		if ( isset( $input['query_string_cap_hour'] ) ) {
+			$out['query_string_cap_hour'] = max( 0, (int) $input['query_string_cap_hour'] );
+		}
+
+		// Checkboxes.
+		$out['ip_anonymize']      = ! empty( $input['ip_anonymize'] );
+		$out['enforce_origin_get'] = ! empty( $input['enforce_origin_get'] );
 
 		if ( isset( $input['endpoint_mode'] ) ) {
 			$out['endpoint_mode'] = in_array( (string) $input['endpoint_mode'], $endpoints, true )
@@ -880,5 +1152,31 @@ final class Rasad_Settings {
 			'jalali'    => __( 'شمسی', 'rasad' ),
 			'gregorian' => __( 'میلادی', 'rasad' ),
 		);
+	}
+
+	/**
+	 * IP source choices.
+	 *
+	 * @return array<string,string> value => label.
+	 */
+	public static function ip_source_choices() {
+		return array(
+			'remote_addr'      => __( 'REMOTE_ADDR (پیش‌فرض)', 'rasad' ),
+			'cf_connecting_ip' => __( 'CF-Connecting-IP', 'rasad' ),
+			'x_forwarded_for'  => __( 'X-Forwarded-For (اولین IPعمومی)', 'rasad' ),
+			'x_real_ip'        => __( 'X-Real-IP', 'rasad' ),
+			'auto'             => __( 'خودکار (فقط derrière پروکسی معتبر)', 'rasad' ),
+		);
+	}
+
+	/**
+	 * Trusted hosts for same-origin validation.
+	 *
+	 * @return string[]
+	 */
+	public static function trusted_hosts() {
+		$hosts = self::get( 'trusted_hosts' );
+
+		return is_array( $hosts ) ? $hosts : array();
 	}
 }
