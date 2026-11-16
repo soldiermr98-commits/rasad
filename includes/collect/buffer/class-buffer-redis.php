@@ -120,6 +120,38 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 	/**
 	 * {@inheritDoc}
 	 */
+	/**
+	 * {@inheritDoc}
+	 *
+	 * Reads without modifying the list.
+	 */
+	public function peek_batch( $limit ) {
+		$limit = max( 1, (int) $limit );
+		$batch = array();
+
+		if ( ! $this->is_available() ) {
+			return $batch;
+		}
+
+		try {
+			$encoded = $this->redis->lRange( self::KEY, 0, $limit - 1 );
+
+			if ( is_array( $encoded ) ) {
+				foreach ( $encoded as $item ) {
+					$hit = json_decode( (string) $item, true );
+
+					if ( is_array( $hit ) ) {
+						$batch[] = $hit;
+					}
+				}
+			}
+		} catch ( Throwable $e ) {
+			return $batch;
+		}
+
+		return $batch;
+	}
+
 	public function count() {
 		if ( ! $this->is_available() ) {
 			return 0;

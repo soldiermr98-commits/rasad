@@ -114,6 +114,23 @@ final class Rasad_Buffer_Apcu implements Rasad_Buffer_Interface {
 	/**
 	 * {@inheritDoc}
 	 */
+	/**
+	 * {@inheritDoc}
+	 *
+	 * Reads without modifying the queue.
+	 */
+	public function peek_batch( $limit ) {
+		$limit = max( 1, (int) $limit );
+
+		if ( ! $this->is_available() ) {
+			return array();
+		}
+
+		$queue = $this->read_queue();
+
+		return is_array( $queue ) ? array_slice( $queue, 0, $limit ) : array();
+	}
+
 	public function count() {
 		if ( ! $this->is_available() ) {
 			return 0;

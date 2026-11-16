@@ -141,6 +141,7 @@ final class Rasad_Api_Rest {
 	Rasad_Collect_Request::process( $raw );
 	$code     = 204;
 	$response = new WP_REST_Response( null, $code );
+	$response->header( 'Cache-Control', 'no-store' );
 
 		// Diagnostic header: only with WP_DEBUG or a valid self-test key.
 		if ( Rasad_Collect_Request::diag_requested() ) {
@@ -251,9 +252,10 @@ final class Rasad_Api_Rest {
 	 * @param array<string,mixed> $params Cache identity (route + range + …).
 	 * @return array<string,mixed>|null
 	 */
-	private static function cache_get( array $params ) {
-		$version = (int) get_transient( self::CACHE_VERSION );
+	private static function cache_get( array $params, $live = false ) {
+		$version = $live ? (int) get_transient( self::CACHE_VERSION ) : 0;
 		$key     = 'rasad_d_' . $version . '_' . md5( wp_json_encode( $params ) );
+		// Past ranges are immutable: no version counter, never invalidated by aggregation.
 		$value   = get_transient( $key );
 
 		return ( false === $value || ! is_array( $value ) ) ? null : $value;
@@ -268,8 +270,9 @@ final class Rasad_Api_Rest {
 	 * @return void
 	 */
 	private static function cache_set( array $params, array $data, $live ) {
-		$version   = (int) get_transient( self::CACHE_VERSION );
+		$version   = $live ? (int) get_transient( self::CACHE_VERSION ) : 0;
 		$key       = 'rasad_d_' . $version . '_' . md5( wp_json_encode( $params ) );
+		// Past ranges are immutable: no version counter, never invalidated by aggregation.
 		$ttl       = $live ? self::TTL_LIVE : self::TTL_PAST;
 		$data['_cached'] = time();
 
@@ -303,9 +306,15 @@ final class Rasad_Api_Rest {
 		$today = Rasad_Process_Aggregator::local_day( time() );
 		$from  = $param( 'from' );
 		$to    = $param( 'to' );
-		$valid = '/^\d{4}-\d{2}-\d{2}$/';
+		$valid = '/^(\d{4})-(\d{2})-(\d{2})$/';
 
-		if ( ! preg_match( $valid, $from ) || ! preg_match( $valid, $to ) ) {
+		// Accept only real calendar dates (checkdate rejects e.g. 2024-02-30).
+		$from_match = preg_match( $valid, $from, $m_from );
+		$to_match   = preg_match( $valid, $to,   $m_to );
+		$from_valid = $from_match && checkdate( (int) $m_from[2], (int) $m_from[3], (int) $m_from[1] );
+		$to_valid   = $to_match   && checkdate( (int) $m_to[2],   (int) $m_to[3],   (int) $m_to[1] );
+
+		if ( ! $from_valid || ! $to_valid ) {
 			$to = $today;
 
 			switch ( $param( 'preset' ) ) {
@@ -352,18 +361,33 @@ final class Rasad_Api_Rest {
 
 		$length   = $to_end - $from_start;
 		$prev_end = $from_start;
+		$days     = self::count_days( $from, $to );
+
+		// Previous period: the same number of calendar days immediately before
+		// `from`, computed in the site timezone so DST transitions are respected.
+		$tz        = wp_timezone();
+		$from_dt   = DateTimeImmutable::createFromFormat( 'Y-m-d', $from, $tz );
+		if ( false === $from_dt ) {
+			$from_dt = new DateTimeImmutable( '@' . $from_start );
+			$from_dt = $from_dt->setTimezone( $tz );
+		}
+		$prev_from = $from_dt->modify( sprintf( '%+d days', -$days ) )->format( 'Y-m-d' );
+		$prev_to   = ( clone $from_dt )->modify( '-1 day' )->format( 'Y-m-d' );
+
+		list( , $prev_to_end ) = Rasad_Process_Aggregator::day_bounds( $prev_to );
+		list( $prev_from_ts )  = Rasad_Process_Aggregator::day_bounds( $prev_from );
 
 		return array(
 			'from'          => $from,
 			'to'            => $to,
 			'from_ts'       => $from_start,
 			'to_end'        => $to_end,
-			'prev_from'     => Rasad_Process_Aggregator::local_day( $prev_end - $length ),
-			'prev_to'       => Rasad_Process_Aggregator::local_day( $prev_end - 1 ),
-			'prev_from_ts'  => $prev_end - $length,
-			'prev_to_end'   => $prev_end,
+			'prev_from'     => $prev_from,
+			'prev_to'       => $prev_to,
+			'prev_from_ts'  => $prev_from_ts,
+			'prev_to_end'   => $prev_to_end,
 			'includes_today'=> ( $to >= $today ),
-			'days'          => self::count_days( $from, $to ),
+			'days'          => $days,
 		);
 	}
 
@@ -375,9 +399,18 @@ final class Rasad_Api_Rest {
 	 * @return string
 	 */
 	private static function shift_day( $day, $days ) {
-		list( $start ) = Rasad_Process_Aggregator::day_bounds( $day );
+		$tz = wp_timezone();
 
-		return Rasad_Process_Aggregator::local_day( $start + ( $days * 86400 ) );
+		$dt = DateTimeImmutable::createFromFormat( 'Y-m-d', $day, $tz );
+
+		if ( false === $dt ) {
+			list( $start ) = Rasad_Process_Aggregator::day_bounds( $day );
+
+			$dt = new DateTimeImmutable( '@' . $start );
+			$dt = $dt->setTimezone( $tz );
+		}
+
+		return $dt->modify( sprintf( '%+d days', (int) $days ) )->format( 'Y-m-d' );
 	}
 
 	/**
@@ -437,7 +470,7 @@ final class Rasad_Api_Rest {
 	public static function handle_overview( $request ) {
 		$range  = self::parse_range( $request );
 		$params = array( 'overview', $range['from'], $range['to'] );
-		$data   = self::cache_get( $params );
+		$data   = self::cache_get( $params, $range['includes_today'] );
 
 		if ( null === $data ) {
 			$current  = self::sum_daily( $range['from'], $range['to'] );
@@ -474,7 +507,7 @@ final class Rasad_Api_Rest {
 		$range       = self::parse_range( $request );
 		$granularity = ( $range['days'] <= 2 ) ? 'hour' : 'day';
 		$params      = array( 'series', $granularity, $range['from'], $range['to'] );
-		$data        = self::cache_get( $params );
+		$data        = self::cache_get( $params, $range['includes_today'] );
 
 		if ( null === $data ) {
 			$data = ( 'hour' === $granularity )
@@ -504,7 +537,7 @@ final class Rasad_Api_Rest {
 			: 0;
 		$limit  = max( 1, min( 50, $limit ? $limit : 10 ) );
 		$params = array( 'pages', $range['from'], $range['to'], $limit );
-		$data   = self::cache_get( $params );
+		$data   = self::cache_get( $params, $range['includes_today'] );
 
 		if ( null === $data ) {
 			global $wpdb;
@@ -562,7 +595,7 @@ final class Rasad_Api_Rest {
 	public static function handle_referrers( $request ) {
 		$range  = self::parse_range( $request );
 		$params = array( 'referrers', $range['from'], $range['to'] );
-		$data   = self::cache_get( $params );
+		$data   = self::cache_get( $params, $range['includes_today'] );
 
 		if ( null === $data ) {
 			global $wpdb;
@@ -751,15 +784,12 @@ final class Rasad_Api_Rest {
 	private static function series_hourly( array $range ) {
 		global $wpdb;
 
-		$first = (int) ceil( $range['from_ts'] / 3600 ) * 3600;
-		$last  = (int) floor( ( $range['to_end'] - 1 ) / 3600 ) * 3600;
-
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				'SELECT hour_ts, views, visitors FROM ' . Rasad_Installer::table( 'hourly' )
 				. ' WHERE hour_ts >= %d AND hour_ts < %d ORDER BY hour_ts',
-				$first,
+				$range['from_ts'],
 				$range['to_end']
 			)
 		);
@@ -770,18 +800,37 @@ final class Rasad_Api_Rest {
 			$by_hour[ (int) $row->hour_ts ] = $row;
 		}
 
-		$tz     = wp_timezone();
-		$points = array();
+		$tz   = wp_timezone();
+		// Start at local midnight of the `from` day.
+		$start = DateTimeImmutable::createFromFormat( 'Y-m-d H:i:s', $range['from'] . ' 00:00:00', $tz );
+		if ( false === $start ) {
+			$start = new DateTimeImmutable( '@' . $range['from_ts'] );
+		}
+		// End at local midnight of the day *after* `to` (exclusive bound), so
+		// partial first/last hours are never dropped and DST transitions are
+		// handled by DateTimeImmutable::modify().
+		$end = DateTimeImmutable::createFromFormat( 'Y-m-d H:i:s', $range['to'] . ' 00:00:00', $tz );
+		if ( false === $end ) {
+			$end = ( new DateTimeImmutable( '@' . $range['to_end'] ) )->setTimezone( $tz );
+		} else {
+			$end = $end->modify( '+1 day' );
+		}
 
-		for ( $t = $first; $t <= $last; $t += 3600 ) {
-			$row = isset( $by_hour[ $t ] ) ? $by_hour[ $t ] : null;
+		$points = array();
+		$cursor = $start;
+
+		while ( $cursor < $end ) {
+			$hour_ts = (int) $cursor->getTimestamp();
+			$row     = isset( $by_hour[ $hour_ts ] ) ? $by_hour[ $hour_ts ] : null;
 
 			$points[] = array(
-				't'        => $t,
-				'label'    => ( new DateTimeImmutable( '@' . $t ) )->setTimezone( $tz )->format( 'Y-m-d H:i' ),
+				't'        => $hour_ts,
+				'label'    => $cursor->format( 'Y-m-d H:i' ),
 				'views'    => $row ? (int) $row->views : 0,
 				'visitors' => $row ? (int) $row->visitors : 0,
 			);
+
+			$cursor = $cursor->modify( '+1 hour' );
 		}
 
 		return array( 'points' => $points );

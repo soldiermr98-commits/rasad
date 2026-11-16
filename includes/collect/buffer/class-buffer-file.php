@@ -124,6 +124,50 @@ final class Rasad_Buffer_File implements Rasad_Buffer_Interface {
 	 *
 	 * @return int
 	 */
+	/**
+	 * Peeks at up to $limit buffered hits without removing them (oldest
+	 * first, matching pop_batch() order). Used by the live panel.
+	 *
+	 * @param int $limit Maximum hits to return.
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function peek_batch( $limit ) {
+		$limit = max( 1, (int) $limit );
+		$batch = array();
+
+		foreach ( $this->files() as $file ) {
+			if ( count( $batch ) >= $limit ) {
+				break;
+			}
+
+			$content = @file_get_contents( $file );
+
+			if ( ! is_string( $content ) || '' === trim( $content ) ) {
+				continue;
+			}
+
+			$lines = explode( "\n", $content );
+
+			foreach ( $lines as $line ) {
+				if ( count( $batch ) >= $limit ) {
+					break;
+				}
+
+				if ( '' === trim( $line ) ) {
+					continue;
+				}
+
+				$decoded = json_decode( $line, true );
+
+				if ( is_array( $decoded ) ) {
+					$batch[] = $decoded;
+				}
+			}
+		}
+
+		return $batch;
+	}
+
 	public function count() {
 		$total = 0;
 
@@ -199,7 +243,7 @@ final class Rasad_Buffer_File implements Rasad_Buffer_Interface {
 			return array();
 		}
 
-		$lines = explode( "\n", $content );
+			$lines = explode( "\n", $content );
 		$taken = array();
 
 		while ( count( $taken ) < $take && ! empty( $lines ) ) {
