@@ -284,10 +284,23 @@ final class Rasad_Collect_Request {
 			return null;
 		}
 
-		// UTM lives in the query string: extract it, then strip it so campaign
-		// variants never split the page statistics (t.js sends p as-is).
-		$utm = self::extract_utm( $data['p'] );
-		$path = self::clean_path( $utm['path'] );
+	$raw_path = $data['p'];
+
+	// Strip fragments — they never reach the server and must not split paths.
+	$raw_path = self::strip_fragment( $raw_path );
+
+	// UTM lives in the query string: extract it, then strip it so campaign
+	// variants never split the page statistics (t.js sends p as-is).
+	$utm = self::extract_utm( $raw_path );
+
+	// Query-string policy: keep only the hard whitelist plus admin-editable
+	// extras; drop everything else (fbclid, gclid, key, login, token …).
+	$path = self::apply_query_policy( $utm['path'] );
+
+	// Cap distinct new paths per day / per hour; overflow → /other.
+	$path = self::cap_new_path( $path );
+
+	$path = self::clean_path( $path );
 
 		if ( null === $path ) {
 			return null;
@@ -390,6 +403,9 @@ final class Rasad_Collect_Request {
 
 	/**
 	 * Origin/Host validation — no cross-site beacons, no host-header abuse.
+	 * Allows a setting + filter list of trusted hosts (www. stripped,
+	 * multisite/domain-mapping aware). Origin/Referer enforcement for the
+	 * GET pixel path (?d=1&b=) is configurable via enforce_origin_get.
 	 *
 	 * @return bool
 	 */
@@ -403,21 +419,64 @@ final class Rasad_Collect_Request {
 		// Compare hostnames; ports are irrelevant for site identity.
 		$host = preg_replace( '/:\d+$/', '', $host );
 
-		$site = strtolower( Rasad_Settings::site_host() );
+		$settings   = Rasad_Settings::all();
+		$enforce_get = isset( $settings['enforce_origin_get'] ) ? (bool) $settings['enforce_origin_get'] : true;
 
-		if ( '' !== $site && $site !== $host ) {
+		$normalize = function ( $h ) {
+			$h = strtolower( (string) $h );
+			$h = preg_replace( '/:\d+$/', '', $h );
+
+			if ( 0 === strpos( $h, 'www.' ) ) {
+				$h = substr( $h, 4 );
+			}
+
+			return $h;
+		};
+
+		$host_norm = $normalize( $host );
+
+		// Allowed hosts: site host + trusted_hosts setting + filter.
+		$allowed = array();
+
+		$site = Rasad_Settings::site_host();
+		if ( '' !== $site ) {
+			$allowed[] = $site;
+		}
+
+		$allowed = array_merge( $allowed, Rasad_Settings::trusted_hosts() );
+		$allowed = array_unique( array_map( $normalize, $allowed ) );
+
+		/**
+		 * Filters the list of hosts accepted as same-origin.
+		 *
+		 * @param string[] $allowed Normalized hostnames.
+		 */
+		$allowed = apply_filters( 'rasad_same_origin_hosts', $allowed );
+
+		if ( ! in_array( $host_norm, $allowed, true ) ) {
 			return false;
 		}
 
-		foreach ( array( 'HTTP_ORIGIN', 'HTTP_REFERER' ) as $header ) {
-			if ( empty( $_SERVER[ $header ] ) ) {
-				continue;
-			}
+		// Origin/Referer enforcement: skipped for the GET pixel path when
+		// the admin has disabled it (pixels from cached pages may lack them).
+		$is_get_pixel = isset( $_SERVER['REQUEST_METHOD'] ) && 'GET' === $_SERVER['REQUEST_METHOD']
+			&& isset( $_GET['d'] ) && '1' === (string) $_GET['d'];
 
-			$origin_host = parse_url( (string) $_SERVER[ $header ], PHP_URL_HOST );
+		if ( ! $is_get_pixel || $enforce_get ) {
+			foreach ( array( 'HTTP_ORIGIN', 'HTTP_REFERER' ) as $header ) {
+				if ( empty( $_SERVER[ $header ] ) ) {
+					continue;
+				}
 
-			if ( ! is_string( $origin_host ) || '' === $origin_host || strtolower( $origin_host ) !== $host ) {
-				return false;
+				$origin_host = parse_url( (string) $_SERVER[ $header ], PHP_URL_HOST );
+
+				if ( ! is_string( $origin_host ) || '' === $origin_host ) {
+					return false;
+				}
+
+				if ( $normalize( $origin_host ) !== $host_norm ) {
+					return false;
+				}
 			}
 		}
 
@@ -425,18 +484,81 @@ final class Rasad_Collect_Request {
 	}
 
 	/**
-	 * Client IP: REMOTE_ADDR only (filterable). Never logged, never stored —
-	 * it only feeds the visitor key and the GeoIP lookup downstream.
+	 * Client IP: honors the IP source setting (REMOTE_ADDR default, or a
+	 * forwarded header when explicitly selected or when REMOTE_ADDR is in
+	 * the trusted-proxy CIDR list). Never logged, never stored — it only
+	 * feeds the visitor key and the GeoIP lookup downstream.
 	 *
 	 * @return string
 	 */
 	private static function client_ip() {
-		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+		$settings = Rasad_Settings::all();
+		$source   = isset( $settings['ip_source'] ) ? (string) $settings['ip_source'] : 'remote_addr';
+		$allowed  = array( 'remote_addr', 'cf_connecting_ip', 'x_forwarded_for', 'x_real_ip', 'auto' );
+
+		if ( ! in_array( $source, $allowed, true ) ) {
+			$source = 'remote_addr';
+		}
+
+		$remote = isset( $_SERVER['REMOTE_ADDR'] ) ? trim( (string) $_SERVER['REMOTE_ADDR'] ) : '';
+		$trusted = isset( $settings['trusted_proxies'] ) && is_array( $settings['trusted_proxies'] )
+			? $settings['trusted_proxies']
+			: array();
+
+		// Forwarded headers are trusted only when the source is explicitly
+		// selected, or (auto) when REMOTE_ADDR is in the trusted-proxy list.
+		$may_trust = ( 'auto' === $source )
+			? self::ip_in_cidrs( $remote, $trusted )
+			: in_array( $source, array( 'cf_connecting_ip', 'x_forwarded_for', 'x_real_ip' ), true );
+
+		$ip = $remote;
+
+		if ( $may_trust ) {
+			$candidates = array();
+
+			// Priority order: CF-Connecting-IP → X-Forwarded-For (first public)
+			// → X-Real-IP. Explicit mode only checks its own header.
+			if ( 'cf_connecting_ip' === $source
+				|| ( 'auto' === $source && isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) ) {
+				$candidates[] = isset( $_SERVER['HTTP_CF_CONNECTING_IP'] )
+					? trim( (string) $_SERVER['HTTP_CF_CONNECTING_IP'] ) : '';
+			}
+
+			if ( ( 'x_forwarded_for' === $source || 'auto' === $source )
+				&& isset( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+				foreach ( explode( ',', (string) $_SERVER['HTTP_X_FORWARDED_FOR'] ) as $part ) {
+					$part = trim( $part );
+					if ( '' !== $part && filter_var( $part, FILTER_VALIDATE_IP )
+						&& self::is_public_ip( $part ) ) {
+						$candidates[] = $part;
+						break;
+					}
+				}
+			}
+
+			if ( 'x_real_ip' === $source
+				|| ( 'auto' === $source && isset( $_SERVER['HTTP_X_REAL_IP'] ) ) ) {
+				$candidates[] = isset( $_SERVER['HTTP_X_REAL_IP'] )
+					? trim( (string) $_SERVER['HTTP_X_REAL_IP'] ) : '';
+			}
+
+			foreach ( $candidates as $candidate ) {
+				if ( '' !== $candidate && filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+					$ip = $candidate;
+					break;
+				}
+			}
+		}
+
+		// Fall back to REMOTE_ADDR when nothing usable was found.
+		if ( '' === $ip || ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+			$ip = $remote;
+		}
 
 		/**
 		 * Filters the client IP used for hashing/GeoIP.
 		 *
-		 * @param string $ip Remote address.
+		 * @param string $ip Remote address (post source selection).
 		 */
 		$ip = apply_filters( 'rasad_client_ip', $ip );
 
@@ -558,6 +680,11 @@ final class Rasad_Collect_Request {
 	 * Only runs when a wordpress_logged_in_* cookie is present; failures
 	 * degrade to "track" (a guest view), never to a fatal.
 	 *
+	 * NOTE: the login cookie is NOT HMAC-verified here. It only reduces
+	 * tracking of the sender's own hits and is never used for authorization.
+	 *
+	 * A short APCu/transient cache keyed by login avoids a DB query per hit.
+	 *
 	 * @param array<string,mixed> $settings Settings.
 	 * @return bool
 	 */
@@ -596,13 +723,34 @@ final class Rasad_Collect_Request {
 			return false;
 		}
 
+		$login = substr( $parts[0], 0, 60 );
+
+		// Short-lived cache keyed by login: APCu first (shared memory, no DB),
+		// then transient as a fallback under full WP.
+		$cache_key = 'rasad_excl_user_' . md5( $login );
+		$ttl = 300; // 5 minutes
+
+		if ( function_exists( 'apcu_fetch' ) ) {
+			$cached = apcu_fetch( $cache_key, $success );
+
+			if ( $success ) {
+				return (bool) $cached;
+			}
+		}
+
+		if ( function_exists( 'get_transient' ) ) {
+			$cached = get_transient( $cache_key );
+
+			if ( false !== $cached ) {
+				return (bool) $cached;
+			}
+		}
+
 		global $wpdb;
 
 		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'get_row' ) ) {
 			return false;
 		}
-
-		$login = substr( $parts[0], 0, 60 );
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers come from wpdb.
 		$row = $wpdb->get_row(
@@ -614,15 +762,32 @@ final class Rasad_Collect_Request {
 		);
 
 		if ( ! $row || ! isset( $row->caps ) || ! is_string( $row->caps ) ) {
-			return false;
+			$excluded = false;
+		} else {
+			$caps = maybe_unserialize( $row->caps );
+			$excluded = is_array( $caps ) && self::user_has_role( $caps, $roles );
 		}
 
-		$caps = maybe_unserialize( $row->caps );
-
-		if ( ! is_array( $caps ) ) {
-			return false;
+		// Cache the result for a short window.
+		if ( function_exists( 'apcu_store' ) ) {
+			@apcu_store( $cache_key, $excluded, $ttl );
 		}
 
+		if ( function_exists( 'set_transient' ) ) {
+			@set_transient( $cache_key, $excluded, $ttl );
+		}
+
+		return $excluded;
+	}
+
+	/**
+	 * Checks whether any of the required roles is present in the caps array.
+	 *
+	 * @param array<string,mixed> $caps User capabilities.
+	 * @param string[]            $roles Role slugs to look for.
+	 * @return bool
+	 */
+	private static function user_has_role( $caps, $roles ) {
 		foreach ( $roles as $role ) {
 			if ( ! empty( $caps[ $role ] ) ) {
 				return true;
@@ -659,7 +824,13 @@ final class Rasad_Collect_Request {
 			return $hit;
 		}
 
-		$hit['ip'] = $ip;
+		// Anonymize the IP in the buffer line unless the admin disabled it
+		// (e.g. when full precision is needed downstream). The aggregator
+		// can still GeoIP from the anonymized prefix for country/city level.
+		$settings = Rasad_Settings::all();
+		$hit['ip'] = ( ! empty( $settings['ip_anonymize'] ) )
+			? self::anonymize_ip( $ip )
+			: $ip;
 		$hit['ua'] = $ua;
 		$hit['w']  = (int) $data['w'];
 		$hit['l']  = (string) $data['l'];
@@ -730,5 +901,243 @@ final class Rasad_Collect_Request {
 		}
 
 		return trim( $text );
+	}
+
+	/* ========================================================================
+	 * New helpers: IP source, CIDR, anonymization, query-string policy
+	 * ======================================================================== */
+
+	/**
+	 * Strips the URL fragment from a path.
+	 *
+	 * @param string $path Raw path.
+	 * @return string
+	 */
+	private static function strip_fragment( $path ) {
+		$pos = strpos( $path, '#' );
+
+		if ( false !== $pos ) {
+			return substr( $path, 0, $pos );
+		}
+
+		return $path;
+	}
+
+	/**
+	 * Applies the query-string policy: strip fragments (already done), keep
+	 * only the hard whitelist plus the admin-editable extra whitelist, drop
+	 * everything else.
+	 *
+	 * @param string $path Path with optional query string.
+	 * @return string Path with only whitelisted query params.
+	 */
+	private static function apply_query_policy( $path ) {
+		$settings = Rasad_Settings::all();
+
+		$qpos = strpos( $path, '?' );
+
+		if ( false === $qpos ) {
+			return $path;
+		}
+
+		$base = substr( $path, 0, $qpos );
+		$query = substr( $path, $qpos + 1 );
+
+		parse_str( $query, $params );
+
+		if ( ! is_array( $params ) || empty( $params ) ) {
+			return $base;
+		}
+
+		$hard = array( 's', 'paged', 'page_id', 'p', 'cat', 'tag', 'post_type', 'product_cat' );
+		$extra = isset( $settings['query_string_whitelist'] ) && is_array( $settings['query_string_whitelist'] )
+			? $settings['query_string_whitelist']
+			: array();
+		$allowed = array_unique( array_merge( $hard, $extra ) );
+
+		$kept = array();
+
+		foreach ( $params as $key => $value ) {
+			if ( is_string( $key ) && in_array( $key, $allowed, true ) ) {
+				$kept[ $key ] = $value;
+			}
+		}
+
+		if ( empty( $kept ) ) {
+			return $base;
+		}
+
+		return $base . '?' . http_build_query( $kept, '', '&', PHP_QUERY_RFC3986 );
+	}
+
+	/**
+	 * Caps distinct new page paths per day and per hour. When a cap is
+	 * reached and the path is new for that window, the path is collapsed
+	 * into a single "/other" page.
+	 *
+	 * @param string $path Sanitized path.
+	 * @return string $path or "/other".
+	 */
+	private static function cap_new_path( $path ) {
+		$settings = Rasad_Settings::all();
+
+		$cap_day = isset( $settings['query_string_cap_day'] ) ? (int) $settings['query_string_cap_day'] : 0;
+		$cap_hour = isset( $settings['query_string_cap_hour'] ) ? (int) $settings['query_string_cap_hour'] : 0;
+
+		if ( $cap_day <= 0 && $cap_hour <= 0 ) {
+			return $path;
+		}
+
+		$dir = rtrim( Rasad_Plugin::storage_dir( Rasad_Buffer_File::SUBDIR ), '/' ) . '/';
+		$day_file = $dir . 'qs-paths-day-' . date( 'Ymd' ) . '.json';
+		$hour_file = $dir . 'qs-paths-hour-' . date( 'YmdHi' ) . '.json';
+
+		$day_seen = self::read_path_set( $day_file );
+		$hour_seen = self::read_path_set( $hour_file );
+
+		$day_new = ! in_array( $path, $day_seen, true );
+		$hour_new = ! in_array( $path, $hour_seen, true );
+
+		if ( $day_new && $cap_day > 0 && count( $day_seen ) >= $cap_day ) {
+			return '/other';
+		}
+
+		if ( $hour_new && $cap_hour > 0 && count( $hour_seen ) >= $cap_hour ) {
+			return '/other';
+		}
+
+		if ( $day_new ) {
+			$day_seen[] = $path;
+			self::write_path_set( $day_file, $day_seen );
+		}
+
+		if ( $hour_new ) {
+			$hour_seen[] = $path;
+			self::write_path_set( $hour_file, $hour_seen );
+		}
+
+		return $path;
+	}
+
+	/**
+	 * Reads a JSON array of seen paths from a file.
+	 *
+	 * @param string $file Absolute path.
+	 * @return string[]
+	 */
+	private static function read_path_set( $file ) {
+		if ( ! is_readable( $file ) ) {
+			return array();
+		}
+
+		$raw = @file_get_contents( $file );
+		$decoded = is_string( $raw ) ? json_decode( $raw, true ) : null;
+
+		return is_array( $decoded ) ? $decoded : array();
+	}
+
+	/**
+	 * Writes a JSON array of seen paths to a file.
+	 *
+	 * @param string $file Absolute path.
+	 * @param string[] $paths Paths.
+	 * @return bool
+	 */
+	private static function write_path_set( $file, $paths ) {
+		$encoded = wp_json_encode( $paths );
+
+		if ( ! is_string( $encoded ) ) {
+			return false;
+		}
+
+		return false !== @file_put_contents( $file, $encoded, LOCK_EX );
+	}
+
+	/**
+	 * Anonymizes an IP for buffer storage: zeroes the last IPv4 octet or
+	 * the last 80 bits of IPv6.
+	 *
+	 * @param string $ip Client IP.
+	 * @return string Anonymized IP.
+	 */
+	private static function anonymize_ip( $ip ) {
+		if ( '' === $ip ) {
+			return $ip;
+		}
+
+		if ( false !== strpos( $ip, ':' ) ) {
+			// IPv6: keep first 48 bits, zero the last 80 bits.
+			$bin = @inet_pton( $ip );
+
+			if ( false !== $bin && 16 === strlen( $bin ) ) {
+				for ( $i = 6; $i < 16; $i++ ) {
+					$bin[ $i ] = chr( 0 );
+				}
+
+				$ntop = @inet_ntop( $bin );
+
+				return is_string( $ntop ) ? $ntop : $ip;
+			}
+		} else {
+			// IPv4: zero the last octet.
+			$parts = explode( '.', $ip );
+
+			if ( 4 === count( $parts ) ) {
+				$parts[3] = '0';
+
+				return implode( '.', $parts );
+			}
+		}
+
+		return $ip;
+	}
+
+	/**
+	 * Checks whether an IP matches any CIDR in a list.
+	 *
+	 * @param string      $ip    Client IP.
+	 * @param string[]    $cidrs CIDR patterns.
+	 * @return bool
+	 */
+	private static function ip_in_cidrs( $ip, $cidrs ) {
+		if ( '' === $ip || empty( $cidrs ) || ! is_array( $cidrs ) ) {
+			return false;
+		}
+
+		foreach ( $cidrs as $cidr ) {
+			if ( self::ip_matches( $ip, (string) $cidr ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Checks whether an IP is public (not private/reserved/loopback).
+	 *
+	 * @param string $ip Client IP.
+	 * @return bool
+	 */
+	private static function is_public_ip( $ip ) {
+		$private = array(
+			'10.0.0.0/8',
+			'172.16.0.0/12',
+			'192.168.0.0/16',
+			'127.0.0.0/8',
+			'169.254.0.0/16',
+			'::1/128',
+			'fc00::/7',
+			'fe80::/10',
+			'2001:db8::/32',
+		);
+
+		foreach ( $private as $cidr ) {
+			if ( self::ip_matches( $ip, $cidr ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 }

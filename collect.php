@@ -195,11 +195,12 @@ if ( '' === $rasad_raw ) {
 }
 
 try {
-	$rasad_code   = Rasad_Collect_Request::process( $rasad_raw );
+	Rasad_Collect_Request::process( $rasad_raw );
 	$rasad_status = Rasad_Collect_Request::last_status();
 } catch ( Throwable $rasad_error ) { // phpcs:ignore -- never leak internals of a beacon request.
-	$rasad_code   = 204;
 	$rasad_status = 'error';
 }
 
-rasad_collect_exit( $rasad_code, $rasad_status );
+// Public contract: always 204. The real outcome is only in X-Rasad-Status
+// (diag mode). Keep 4xx/5xx out of the browser console.
+rasad_collect_exit( 204, $rasad_status );
