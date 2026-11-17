@@ -58,7 +58,7 @@ final class Rasad_Buffer_File implements Rasad_Buffer_Interface {
 
 		Rasad_Plugin::protect_dir( $this->dir );
 
-		return is_writable( $this->dir );
+		return Rasad_Plugin::writable_dir( $this->dir );
 	}
 
 	/**

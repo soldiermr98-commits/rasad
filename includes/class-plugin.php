@@ -216,7 +216,42 @@ final class Rasad_Plugin {
 			self::$storage_done = true;
 		}
 
-		return is_dir( $base ) && is_writable( $base );
+		return self::writable_dir( $base );
+	}
+
+	/**
+	 * Whether a directory is writable, including on Windows where PHP's
+	 * `is_writable()` is unreliable for directories (it reports false because
+	 * Windows sets the read-only attribute on every folder).
+	 *
+	 * @param string $dir Absolute directory path.
+	 * @return bool
+	 */
+	public static function writable_dir( $dir ) {
+		$dir = rtrim( (string) $dir, '/\\' );
+
+		if ( ! is_dir( $dir ) ) {
+			return false;
+		}
+
+		// Fast path (Linux and other POSIX hosts).
+		if ( is_writable( $dir ) ) {
+			return true;
+		}
+
+		// Windows fallback: prove writability by creating and deleting a
+		// probe file instead of trusting is_writable().
+		$probe = $dir . '/.rasad-probe-' . uniqid( '', true );
+		$fh    = @fopen( $probe, 'wb' );
+
+		if ( false === $fh ) {
+			return false;
+		}
+
+		fclose( $fh );
+		@unlink( $probe );
+
+		return true;
 	}
 
 	/**

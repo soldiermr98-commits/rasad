@@ -128,7 +128,7 @@ final class Rasad_Process_Cleaner {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
 			$sql = $wpdb->prepare(
 				"DELETE FROM {$table} WHERE {$column} " . ( $is_date ? '< %s' : '< %d' ) . ' LIMIT ' . self::DELETE_CHUNK,
-				(is_date ? (string) $cutoff : (int) $cutoff)
+				$is_date ? (string) $cutoff : (int) $cutoff
 			);
 
 			$affected = $wpdb->query( $sql );

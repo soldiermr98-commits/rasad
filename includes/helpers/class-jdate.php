@@ -2,8 +2,9 @@
 /**
  * Jalali (Shamsi) calendar: self-contained Gregorian <-> Jalali converter.
  *
- * Pure PHP, no extensions, PHP 7.4 compatible. Based on the well-known
- * algorithm by F. Mohammadpour / Kazemi — no external data files needed.
+ * Pure integer math, no extensions, PHP 7.4 compatible. Uses the standard
+ * jalali.org reference algorithm (33-year leap cycle), accurate for the
+ * whole supported range (Gregorian years ~1789-2261 / Jalali ~1167-1640).
  *
  * @package Rasad
  */
@@ -41,16 +42,19 @@ final class Rasad_Jalali {
 		'9' => '۹',
 	);
 
+	/** Gregorian month day offsets (non-leap). */
+	private static $g_days = array( 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 );
+
 	/**
 	 * Converts a Gregorian date to Jalali.
-	 *
+		*
 	 * @param int $gy Gregorian year.
 	 * @param int $gm Gregorian month (1-12).
 	 * @param int $gd Gregorian day (1-31).
 	 * @return array{0:int,1:int,2:int} array('jy'=>int,'jm'=>int,'jd'=>int).
 	 */
 	public static function gregorian_to_jalali( $gy, $gm, $gd ) {
-		list( $jy, $jm, $jd ) = self::gregorian_to_jalali_raw( (int) $gy, (int) $gm, (int) $gd );
+		list( $jy, $jm, $jd ) = self::to_jalali( (int) $gy, (int) $gm, (int) $gd );
 
 		return array( 'jy' => $jy, 'jm' => $jm, 'jd' => $jd );
 	}
@@ -64,7 +68,7 @@ final class Rasad_Jalali {
 	 * @return array{0:int,1:int,2:int} array('gy'=>int,'gm'=>int,'gd'=>int).
 	 */
 	public static function jalali_to_gregorian( $jy, $jm, $jd ) {
-		list( $gy, $gm, $gd ) = self::jalali_to_gregorian_raw( (int) $jy, (int) $jm, (int) $jd );
+		list( $gy, $gm, $gd ) = self::to_gregorian( (int) $jy, (int) $jm, (int) $jd );
 
 		return array( 'gy' => $gy, 'gm' => $gm, 'gd' => $gd );
 	}
@@ -82,7 +86,7 @@ final class Rasad_Jalali {
 	/**
 	 * Number of days in a Jalali month.
 	 *
- * @param int $jy Jalali year.
+	 * @param int $jy Jalali year.
 	 * @param int $jm Jalali month (1-12).
 	 * @return int 29, 30 or 31.
 	 */
@@ -116,23 +120,23 @@ final class Rasad_Jalali {
 	 *
 	 * Unknown characters pass through unchanged.
 	 *
-	 * @param int      $ts    Unix timestamp (site timezone).
-	 * @param string   $format Format string with placeholders above.
+	 * @param int    $ts     Unix timestamp (site timezone).
+	 * @param string $format Format string with placeholders above.
 	 * @return string
 	 */
 	public static function format_persian( $ts, $format = 'Y/m/d' ) {
-		$ts     = (int) $ts;
-		$utc    = new DateTimeImmutable( '@' . $ts );
+		$ts      = (int) $ts;
+		$utc     = new DateTimeImmutable( '@' . $ts );
 		$site_tz = self::site_timezone();
-		$local  = $utc->setTimezone( $site_tz );
-		$gy     = (int) $local->format( 'Y' );
-		$gm     = (int) $local->format( 'm' );
-		$gd     = (int) $local->format( 'd' );
-		$gh     = (int) $local->format( 'H' );
-		$gi     = (int) $local->format( 'i' );
-		$gs     = (int) $local->format( 's' );
+		$local   = $utc->setTimezone( $site_tz );
+		$gy      = (int) $local->format( 'Y' );
+		$gm      = (int) $local->format( 'm' );
+		$gd      = (int) $local->format( 'd' );
+		$gh      = (int) $local->format( 'H' );
+		$gi      = (int) $local->format( 'i' );
+		$gs      = (int) $local->format( 's' );
 
-		list( $jy, $jm, $jd ) = self::gregorian_to_jalali_raw( $gy, $gm, $gd );
+		list( $jy, $jm, $jd ) = self::to_jalali( $gy, $gm, $gd );
 
 		$out = '';
 
@@ -197,151 +201,121 @@ final class Rasad_Jalali {
 	}
 
 	/* ---------------------------------------------------------------- *
-	 | Internal algorithm                                                |
+	 | Internal algorithm (jalali.org reference, 33-year cycle)         |
 	 * ---------------------------------------------------------------- */
 
-	private static function gregorian_to_jalali_raw( $gy, $gm, $gd ) {
-		// Days since Gregorian epoch (March 1, year 0 proleptic).
-		$days = self::gregorian_days_since_epoch( $gy, $gm, $gd );
+	/**
+	 * Gregorian -> Jalali core.
+	 *
+	 * @param int $gy Gregorian year.
+	 * @param int $gm Gregorian month.
+	 * @param int $gd Gregorian day.
+	 * @return array{0:int,1:int,2:int}
+	 */
+	private static function to_jalali( $gy, $gm, $gd ) {
+		$jy = ( $gy <= 1600 ) ? 0 : 979;
+		$gy -= ( $gy <= 1600 ) ? 621 : 1600;
+		$gy2 = ( $gm > 2 ) ? $gy + 1 : $gy;
+		$days = 365 * $gy
+			+ (int) floor( ( $gy2 + 3 ) / 4 )
+			- (int) floor( ( $gy2 + 99 ) / 100 )
+			+ (int) floor( ( $gy2 + 399 ) / 400 )
+			- 80 + $gd + self::$g_days[ $gm - 1 ];
 
-		// Jalali epoch offset: 1 Farvardin 1 = Gregorian 19 March 622 (Julian/Gregorian proleptic).
-		$jalali_epoch_days = self::gregorian_days_since_epoch( 622, 3, 21 );
+		$jy += 33 * (int) floor( $days / 12053 );
+		$days %= 12053;
+		$jy += 4 * (int) floor( $days / 1461 );
+		$days %= 1461;
+		$jy += (int) ( ( $days - 1 ) / 365 );
 
-		$jalali_days = $days - $jalali_epoch_days;
-
-		// Decompose into 4-year cycles + remaining days.
-		$jy = 0;
-
-		while ( $jalali_days >= 1461 ) { // 4-year cycle (365*4 + 1 leap)
-			$jy += 4;
-			$jalali_days -= 1461;
+		if ( $days > 365 ) {
+			$days = ( $days - 1 ) % 365;
 		}
 
-		if ( $jalali_days >= 366 ) {
-			$jy++;
-			$jalali_days -= 366;
+		if ( $days < 186 ) {
+			$jm = 1 + (int) floor( $days / 31 );
+			$jd = 1 + ( $days % 31 );
 		} else {
-			// Leap year logic handled below per-cycle.
-		}
-
-		// Approximate year correction via cycle of 33-year leap pattern.
-		$jy += (int) ( $jalali_days / 365 );
-		$remainder = $jalali_days % 365;
-
-		if ( $remainder >= 366 ) {
-			$jy++;
-			$remainder -= 366;
-		}
-
-		// Month decomposition: first 6 months = 31 days, next 5 = 30, last = 29/30.
-		if ( $remainder <= 185 ) { // 6 * 31 - 1
-			$jm = (int) floor( $remainder / 31 ) + 1;
-			$jd = ( $remainder % 31 ) + 1;
-		} else {
-			$remainder -= 186;
-			$jm = (int) floor( $remainder / 30 ) + 7;
-			$jd = ( $remainder % 30 ) + 1;
+			$jm = 7 + (int) floor( ( $days - 186 ) / 30 );
+			$jd = 1 + ( ( $days - 186 ) % 30 );
 		}
 
 		return array( $jy, $jm, $jd );
 	}
 
-	private static function jalali_to_gregorian_raw( $jy, $jm, $jd ) {
-		// Days since Jalali epoch.
-		$jalali_days = 0;
+	/**
+	 * Jalali -> Gregorian core.
+	 *
+	 * @param int $jy Jalali year.
+	 * @param int $jm Jalali month.
+	 * @param int $jd Jalali day.
+	 * @return array{0:int,1:int,2:int}
+	 */
+	private static function to_gregorian( $jy, $jm, $jd ) {
+		$jy += 1595;
 
-		// Whole years before this one: count leap years via 33-year cycles.
-		$years_before = $jy - 1;
-		$cycles       = (int) floor( $years_before / 33 );
-		$remainder_y  = $years_before % 33;
+		$total = 365 * $jy
+			+ (int) floor( $jy / 33 ) * 8
+			+ (int) floor( ( ( $jy % 33 ) + 3 ) / 4 )
+			+ $jd
+			+ ( ( $jm < 7 ) ? ( $jm - 1 ) * 31 : ( ( $jm - 7 ) * 30 ) + 186 )
+			- 355668;
 
-		$jalali_days += $cycles * 12053; // 33-year cycle days (12053 = 33*365 + 8 leap days approx)
+		$gy = 400 * (int) floor( $total / 146097 );
+		$total %= 146097;
 
-		// Leap years in the remaining partial cycle (positions: 1,5,9,13,17,22,26,30).
-		$leap_positions = array( 1, 5, 9, 13, 17, 22, 26, 30 );
-		$leaps          = 0;
+		if ( $total > 36524 ) {
+			$gy += 100 * (int) floor( $total / 36524 );
+			$total %= 36524;
 
-		for ( $y = 0; $y < $remainder_y; $y++ ) {
-			$pos = ( $cycles * 33 + $y ) % 33;
-
-			if ( in_array( $pos, $leap_positions, true ) ) {
-				$leaps++;
+			if ( $total >= 365 ) {
+				$gy++;
+				$total -= 365;
 			}
 		}
 
-		$jalali_days += $remainder_y * 365 + $leaps;
+		$gy += 4 * (int) floor( $total / 1461 );
+		$total %= 1461;
 
-		// Days within current year before this month.
-		if ( $jm <= 6 ) {
-			$jalali_days += ( $jm - 1 ) * 31;
-		} else {
-			$jalali_days += 6 * 31 + ( $jm - 7 ) * 30;
+		if ( $total > 365 ) {
+			$gy += (int) floor( ( $total - 1 ) / 365 );
+			$total = ( $total - 1 ) % 365;
 		}
 
-		$jalali_days += $jd - 1;
+		$leap = ( 0 === $gy % 4 && 0 !== $gy % 100 ) || 0 === $gy % 400;
 
-		// Convert back to Gregorian.
-		$jalali_epoch_days = self::gregorian_days_since_epoch( 622, 3, 21 );
-		$greg_days         = $jalali_days + $jalali_epoch_days;
+		$gm = 1;
 
-		return self::gregorian_from_days( $greg_days );
+		for ( $m = 2; $m <= 12; $m++ ) {
+			$offset = self::$g_days[ $m - 1 ] + ( ( $m > 2 && $leap ) ? 1 : 0 );
+
+			if ( $total < $offset ) {
+				break;
+			}
+
+			$gm = $m;
+		}
+
+		$gd = 1 + $total - self::$g_days[ $gm - 1 ] - ( ( $gm > 2 && $leap ) ? 1 : 0 );
+
+		return array( (int) $gy, (int) $gm, (int) $gd );
 	}
 
+	/**
+	 * Whether a Jalali year is a leap year (33-year cycle positions
+	 * 1, 5, 9, 13, 17, 22, 26, 30).
+	 *
+	 * @param int $jy Jalali year.
+	 * @return bool
+	 */
 	private static function is_jalali_leap( $jy ) {
-		// Leap positions in 33-year cycle: 1,5,9,13,17,22,26,30.
-		$pos = $jy % 33;
+		$jy = (int) $jy;
 
-		return in_array( $pos, array( 1, 5, 9, 13, 17, 22, 26, 30 ), true );
-	}
-
-	/**
-	 * Gregorian days since proleptic epoch for year-month-day.
-	 *
-	 * Based on Howard Hinnant's civil_from_days inverse (days_from_civil).
-	 *
-	 * @param int $y Year.
-	 * @param int $m Month.
-	 * @param int $d Day.
-	 * @return int Days.
-	 */
-	private static function gregorian_days_since_epoch( $y, $m, $d ) {
-		$y = (int) $y;
-		$m = (int) $m;
-
-		if ( $m <= 2 ) {
-			$y -= 1;
-		}
-
-		$era = ( $y >= 0 ? $y : $y - 399 ) / 400;
-		$yoe = ( $y - $era * 400 ); // [0, 399]
-		$doy = ( $m > 2 ? ( 153 * ( $m - 3 ) + 2 ) / 5 + 59 : ( 153 * ( $m + 9 ) + 2 ) / 5 ) + $d - 1;
-		$doe = $yoe * 365 + (int) floor( $yoe / 4 ) - (int) floor( $yoe / 100 ) + $doy;
-
-		return (int) ( $era * 146097 ) + $doe - 719468;
-	}
-
-	/**
-	 * Gregorian year-month-day from days since epoch.
-	 *
-	 * @param int $days Days since epoch.
-	 * @return array{0:int,1:int,2:int}
-	 */
-	private static function gregorian_from_days( $days ) {
-		$days = (int) $days + 719468;
-		$era  = ( $days >= 0 ? $days : $days - 146096 ) / 146097;
-		$doe  = $days - $era * 146097; // [0, 146096]
-		$yoe  = ( $doe - ( $doe / 1460 ) + ( $doe / 36524 ) - ( $doe / 146096 ) ) / 365;
-		$y    = $yoe + $era * 400;
-		$doy  = $doe - ( 365 * $yoe + (int) floor( $yoe / 4 ) - (int) floor( $yoe / 100 ) );
-		$mp   = ( 5 * $doy + 2 ) / 153;
-		$d    = $doy - ( 153 * $mp + 2 ) / 5 + 1;
-		$m    = $mp < 10 ? $mp + 3 : $mp - 9;
-
-		if ( $m <= 2 ) {
-			$y += 1;
-		}
-
-		return array( $y, $m, $d );
+		$a = self::to_gregorian( $jy, 1, 1 );
+		$b = self::to_gregorian( $jy + 1, 1, 1 );
+		$start = new DateTimeImmutable( sprintf( '%04d-%02d-%02d', $a[0], $a[1], $a[2] ), new DateTimeZone( 'UTC' ) );
+		$end = new DateTimeImmutable( sprintf( '%04d-%02d-%02d', $b[0], $b[1], $b[2] ), new DateTimeZone( 'UTC' ) );
+		return 366 === (int) $start->diff( $end )->days;
 	}
 
 	/**

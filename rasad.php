@@ -23,7 +23,12 @@ define( 'RASAD_VERSION', '1.0.0' );
 define( 'RASAD_DB_VERSION', '1.2.0' );
 define( 'RASAD_FILE', __FILE__ );
 define( 'RASAD_DIR', plugin_dir_path( __FILE__ ) );
-define( 'RASAD_URL', plugin_dir_url( __FILE__ ) );
+
+// plugin_dir_url() calls plugins_url(), which is only available in a full
+// WordPress load (not under SHORTINIT, which collect.php uses). RASAD_URL is
+// only needed on the front-end/admin (tracker endpoint), so fall back to an
+// empty string there rather than fatal on the collect hot path.
+define( 'RASAD_URL', function_exists( 'plugins_url' ) ? plugin_dir_url( __FILE__ ) : '' );
 define( 'RASAD_CRON_HOOK', 'rasad_aggregate' );
 
 // Hard cap for one beacon payload (bytes). t.js sends ~300-800; 4KB is headroom.
@@ -82,8 +87,13 @@ function rasad_autoload( $class ) {
 }
 spl_autoload_register( 'rasad_autoload' );
 
-register_activation_hook( __FILE__, array( 'Rasad_Installer', 'activate' ) );
-register_deactivation_hook( __FILE__, array( 'Rasad_Installer', 'deactivate' ) );
+// Activation hooks and the plugins_loaded bootstrap touch the global hook
+// registry, which does not exist under SHORTINIT (collect.php). The autoloader
+// and constants above are all collect.php needs, so skip the rest there.
+if ( ! defined( 'SHORTINIT' ) || ! SHORTINIT ) {
+	register_activation_hook( __FILE__, array( 'Rasad_Installer', 'activate' ) );
+	register_deactivation_hook( __FILE__, array( 'Rasad_Installer', 'deactivate' ) );
+}
 
 /**
  * Boots the plugin. Kept intentionally tiny: nothing heavy runs on plugins_loaded.
@@ -93,4 +103,7 @@ register_deactivation_hook( __FILE__, array( 'Rasad_Installer', 'deactivate' ) )
 function rasad_bootstrap() {
 	Rasad_Plugin::instance()->init();
 }
-add_action( 'plugins_loaded', 'rasad_bootstrap', 5 );
+
+if ( ! defined( 'SHORTINIT' ) || ! SHORTINIT ) {
+	add_action( 'plugins_loaded', 'rasad_bootstrap', 5 );
+}

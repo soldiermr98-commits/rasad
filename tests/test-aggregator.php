@@ -1,62 +1,27 @@
 <?php
 /**
- * Tests for Rasad aggregator math (bounce rate, duration, unique visitors).
- *
- * Run with: php tests/test-aggregator.php
- * Requires WordPress bootstrap (ABSPATH defined, classes loaded via autoloader).
+ * Aggregator math tests: day boundaries, bounce rate, average duration,
+ * period-over-period delta and dimension id derivation.
  *
  * @package Rasad
  */
 
-if ( ! defined( 'ABSPATH' ) ) {
-	define( 'ABSPATH', __DIR__ . '/../' );
-}
+// Day helpers.
+$day = Rasad_Process_Aggregator::local_day( 1700000000 );
+test( 'local_day format', (bool) preg_match( '/^\d{4}-\d{2}-\d{2}$/', $day ) );
+test( 'local_day value (UTC)', $day === '2023-11-14' );
 
-require_once __DIR__ . '/../rasad.php';
+list( $start, $end ) = Rasad_Process_Aggregator::day_bounds( '2023-06-15' );
+test( 'day_bounds span 86400s (UTC)', ( $end - $start ) === 86400 );
+test( 'day_bounds start is midnight', date( 'H:i:s', $start ) === '00:00:00' );
+test( 'day_bounds start maps to same day', Rasad_Process_Aggregator::local_day( $start ) === '2023-06-15' );
 
-$failures = 0;
+// Country dimension id.
+test( 'country_dim empty is 0', Rasad_Process_Aggregator::country_dim_id( '' ) === 0 );
+test( 'country_dim IR > 0', Rasad_Process_Aggregator::country_dim_id( 'IR' ) > 0 );
+test( 'country_dim consistent', Rasad_Process_Aggregator::country_dim_id( 'IR' ) === Rasad_Process_Aggregator::country_dim_id( 'IR' ) );
 
-function test( $name, $condition ) {
-	global $failures;
-	if ( $condition ) {
-		echo "PASS  $name\n";
-	} else {
-		echo "FAIL  $name\n";
-		$failures++;
-	}
-}
-
-// --- Bounce rate calculation ---
-// bounce_rate = bounces / sessions
-test( 'Bounce rate: 0 sessions = 0', ( 0 > 0 ? 0 / 0 : 0 ) === 0 );
-test( 'Bounce rate: 100% bounce', round( 5 / 5, 4 ) === 1.0 );
-test( 'Bounce rate: 0% bounce', round( 0 / 10, 4 ) === 0.0 );
-test( 'Bounce rate: 30% bounce', round( 3 / 10, 4 ) === 0.3 );
-
-// --- Average duration ---
-// avg_duration = total_duration / sessions
-test( 'Avg duration: 0 sessions = 0', ( 0 > 0 ? 0 / 0 : 0 ) === 0 );
-test( 'Avg duration: 100s / 5 sessions = 20s', (int) round( 100 / 5 ) === 20 );
-test( 'Avg duration: 0s / 10 sessions = 0s', (int) round( 0 / 10 ) === 0 );
-
-// --- Session gap (30 minutes = 1800 seconds) ---
-test( 'Session gap default is 1800s', Rasad_Process_Aggregator::session_gap() === 1800 );
-
-// --- Day bounds (timezone aware) ---
-$today = Rasad_Process_Aggregator::local_day( time() );
-list( $start, $end ) = Rasad_Process_Aggregator::day_bounds( $today );
-test( 'Day bounds: end > start', $end > $start );
-test( 'Day bounds: span is 86400s', ( $end - $start ) === 86400 );
-test( 'Day bounds: start is midnight', date( 'H:i:s', $start ) === '00:00:00' );
-
-// --- Country dim id ---
-test( 'Country dim: empty = 0', Rasad_Process_Aggregator::country_dim_id( '' ) === 0 );
-test( 'Country dim: IR = crc32', Rasad_Process_Aggregator::country_dim_id( 'IR' ) > 0 );
-test( 'Country dim: US = crc32', Rasad_Process_Aggregator::country_dim_id( 'US' ) > 0 );
-test( 'Country dim: consistent', Rasad_Process_Aggregator::country_dim_id( 'IR' ) === Rasad_Process_Aggregator::country_dim_id( 'IR' ) );
-
-// --- Affected days tracking ---
-test( 'Aggregator class exists', class_exists( 'Rasad_Process_Aggregator' ) );
+// Public API surface.
 test( 'Aggregator has run method', method_exists( 'Rasad_Process_Aggregator', 'run' ) );
 test( 'Aggregator has local_day method', method_exists( 'Rasad_Process_Aggregator', 'local_day' ) );
 test( 'Aggregator has day_bounds method', method_exists( 'Rasad_Process_Aggregator', 'day_bounds' ) );
@@ -64,5 +29,32 @@ test( 'Aggregator has cron_schedules method', method_exists( 'Rasad_Process_Aggr
 test( 'Aggregator has cron_url method', method_exists( 'Rasad_Process_Aggregator', 'cron_url' ) );
 test( 'Aggregator has cron_key method', method_exists( 'Rasad_Process_Aggregator', 'cron_key' ) );
 
-echo "\n" . ( $failures === 0 ? 'ALL AGGREGATOR TESTS PASSED' : "$failures AGGREGATOR TESTS FAILED" ) . "\n";
-exit( $failures > 0 ? 1 : 0 );
+// Bounce rate + average duration (private metric_set() via reflection).
+$metric = new ReflectionMethod( 'Rasad_Api_Rest', 'metric_set' );
+$metric->setAccessible( true );
+
+$out = $metric->invoke(
+	null,
+	array(
+		'views'          => 100,
+		'visitors'       => 5,
+		'sessions'       => 10,
+		'bounces'        => 4,
+		'total_duration' => 300,
+	)
+);
+test( 'metric_set views', $out['views'] === 100 );
+test( 'metric_set visitors', $out['visitors'] === 5 );
+test( 'metric_set bounce rate 0.4', $out['bounce_rate'] === 0.4 );
+test( 'metric_set avg duration 30', $out['avg_duration'] === 30 );
+
+$zero = $metric->invoke( null, array( 'views' => 0, 'visitors' => 0, 'sessions' => 0, 'bounces' => 0, 'total_duration' => 0 ) );
+test( 'metric_set zero sessions bounce', $zero['bounce_rate'] === 0 );
+test( 'metric_set zero sessions duration', $zero['avg_duration'] === 0 );
+
+// Period-over-period delta.
+$delta = new ReflectionMethod( 'Rasad_Api_Rest', 'delta' );
+$delta->setAccessible( true );
+test( 'delta 50 vs 100', $delta->invoke( null, 50, 100 ) === -50.0 );
+test( 'delta 0 vs 0', $delta->invoke( null, 0, 0 ) === 0.0 );
+test( 'delta 10 vs 0 (null)', $delta->invoke( null, 10, 0 ) === null );
