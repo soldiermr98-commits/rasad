@@ -32,6 +32,13 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 	 */
 	private $redis = null;
 
+	/** Site-scoped key; recomputed after switch_to_blog(). */
+	private function key() {
+		global $wpdb;
+		$scope = ABSPATH . '|' . ( defined( 'DB_NAME' ) ? DB_NAME : '' ) . '|' . ( isset( $wpdb->prefix ) ? $wpdb->prefix : '' ) . '|' . ( function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 0 );
+		return self::KEY . ':' . hash( 'sha256', $scope );
+	}
+
 	/**
 	 * Whether the driver can operate on this host.
 	 *
@@ -79,7 +86,7 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 		}
 
 		try {
-			return (bool) $this->redis->rPush( self::KEY, $encoded );
+			return (bool) $this->redis->rPush( $this->key(), $encoded );
 		} catch ( Throwable $e ) {
 			return false;
 		}
@@ -97,15 +104,12 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 		}
 
 		try {
-			for ( $i = 0; $i < $limit; $i++ ) {
-				$encoded = $this->redis->lPop( self::KEY );
-
-				if ( false === $encoded || null === $encoded ) {
-					break;
-				}
-
+			// Redis executes the read and trim together; concurrent producers and
+			// consumers cannot interleave. One round trip regardless of batch size.
+			$script = 'local items = redis.call("LRANGE", KEYS[1], 0, ARGV[1] - 1); redis.call("LTRIM", KEYS[1], #items, -1); return items';
+			$items = $this->redis->eval( $script, array( $this->key(), $limit ), 1 );
+			foreach ( is_array( $items ) ? $items : array() as $encoded ) {
 				$hit = json_decode( (string) $encoded, true );
-
 				if ( is_array( $hit ) ) {
 					$batch[] = $hit;
 				}
@@ -134,7 +138,7 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 		}
 
 		try {
-			$encoded = $this->redis->lRange( self::KEY, 0, $limit - 1 );
+			$encoded = $this->redis->lRange( $this->key(), 0, $limit - 1 );
 
 			if ( is_array( $encoded ) ) {
 				foreach ( $encoded as $item ) {
@@ -158,7 +162,7 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 		}
 
 		try {
-			$count = $this->redis->lLen( self::KEY );
+			$count = $this->redis->lLen( $this->key() );
 
 			return is_int( $count ) ? (int) $count : 0;
 		} catch ( Throwable $e ) {
@@ -173,7 +177,11 @@ final class Rasad_Buffer_Redis implements Rasad_Buffer_Interface {
 	 */
 	public function __destruct() {
 		if ( $this->redis instanceof Redis ) {
-			@$this->redis->close();
+			try {
+				@$this->redis->close();
+			} catch ( Throwable $e ) {
+				// Shutdown must remain safe after a server disconnect.
+			}
 		}
 	}
 }

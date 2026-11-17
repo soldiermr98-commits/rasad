@@ -214,6 +214,7 @@ final class Rasad_Process_Geoip {
 	public static function lookup( $ip ) {
 		$code    = self::country( $ip );
 		$city_id = 0;
+		$city = '';
 
 		if ( '' !== $code ) {
 			$city_map = self::query( 'city', $ip );
@@ -224,7 +225,7 @@ final class Rasad_Process_Geoip {
 			}
 		}
 
-		return array( $code, $city_id );
+		return array( $code, $city_id, $city );
 	}
 
 	/**

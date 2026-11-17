@@ -60,6 +60,13 @@ final class Rasad_Plugin {
 	 */
 	private function __construct() {}
 
+	/** Clear site-local paths and driver handles when WordPress switches blogs. */
+	public static function switched_blog() {
+		self::$buffer = null;
+		self::$storage = null;
+		self::$storage_done = false;
+	}
+
 	/**
 	 * Registers the few hooks this plugin needs globally.
 	 *
@@ -77,6 +84,7 @@ final class Rasad_Plugin {
 		$initialized = true;
 
 		add_action( 'init', array( $this, 'load_textdomain' ) );
+		add_action( 'switch_blog', array( __CLASS__, 'switched_blog' ) );
 
 		// Versioned DB migrations, only in admin context (never on the front-end hot path).
 		add_action( 'admin_init', array( 'Rasad_Installer', 'maybe_upgrade' ) );
@@ -92,6 +100,7 @@ final class Rasad_Plugin {
 		// inside wp-admin, so front-end requests never load class-admin.php.
 		add_action( 'admin_menu', array( 'Rasad_Admin', 'admin_menu' ) );
 		add_action( 'admin_enqueue_scripts', array( 'Rasad_Admin', 'enqueue' ) );
+		add_action( 'admin_post_rasad_csv', array( 'Rasad_Admin_Export', 'handle' ) );
 
 		// Admin dashboard widget (Phase 7) — shown on the main WP dashboard.
 		add_action( 'plugins_loaded', array( 'Rasad_Admin_Dashboard_Widget', 'hooks' ), 10 );

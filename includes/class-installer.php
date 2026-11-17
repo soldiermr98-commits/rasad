@@ -36,6 +36,9 @@ final class Rasad_Installer {
 		'daily_pages',
 		'daily_dim',
 		'events',
+		'wc_orders',
+		'wc_daily',
+		'cities',
 		'buffer',
 	);
 
@@ -282,6 +285,7 @@ final class Rasad_Installer {
 			'1.0.0' => 'migrate_1_0_0',
 			'1.1.0' => 'migrate_1_1_0',
 			'1.2.0' => 'migrate_1_2_0',
+			'1.3.0' => 'migrate_1_3_0',
 		);
 	}
 
@@ -314,11 +318,12 @@ final class Rasad_Installer {
 	public static function migrate_1_2_0() {
 		Rasad_Process_Aggregator::rebuild_hourly();
 	}
-	/**
-	 * Creates/updates all tables through dbDelta.
-	 *
-	 * @return void
-	 */
+	/** Migration 1.3.0: durable commerce, summaries and city names. */
+	public static function migrate_1_3_0() {
+		self::create_tables();
+	}
+
+	/** Creates/updates all tables through dbDelta. */
 	private static function create_tables() {
 		global $wpdb;
 
@@ -453,9 +458,45 @@ final class Rasad_Installer {
   day DATE NOT NULL,
   type VARCHAR(32) NOT NULL,
   page_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  value DECIMAL(12,2) NULL,
+  value DECIMAL(20,6) NULL,
+  product_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  order_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  referrer_id INT UNSIGNED NOT NULL DEFAULT 0,
+  quantity BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  currency CHAR(3) NOT NULL DEFAULT '',
   PRIMARY KEY  (id),
   KEY day_type (day,type)
+) ENGINE=InnoDB {$charset_collate};";
+
+		// Permanent order-id ledger; pending payloads are cleared after atomic aggregation.
+		$schema['wc_orders'] = "CREATE TABLE {$t['wc_orders']} (
+  order_id BIGINT UNSIGNED NOT NULL,
+  payload LONGTEXT NOT NULL,
+  processed TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at INT UNSIGNED NOT NULL,
+  PRIMARY KEY  (order_id),
+  KEY processed_order (processed,order_id)
+) ENGINE=InnoDB {$charset_collate};";
+
+		$schema['wc_daily'] = "CREATE TABLE {$t['wc_daily']} (
+  day DATE NOT NULL,
+  scope TINYINT UNSIGNED NOT NULL,
+  object_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  currency CHAR(3) NOT NULL DEFAULT '',
+  product_views BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  add_to_cart BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  checkouts BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  orders BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  quantity BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  revenue DECIMAL(20,6) NOT NULL DEFAULT 0,
+  PRIMARY KEY  (day,scope,object_id,currency)
+) ENGINE=InnoDB {$charset_collate};";
+
+		$schema['cities'] = "CREATE TABLE {$t['cities']} (
+  id INT UNSIGNED NOT NULL,
+  country CHAR(2) NOT NULL DEFAULT '',
+  name VARCHAR(191) NOT NULL,
+  PRIMARY KEY  (id)
 ) ENGINE=InnoDB {$charset_collate};";
 
 		// Buffer: transient hit queue for the DB fallback driver.

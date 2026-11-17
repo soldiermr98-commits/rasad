@@ -265,12 +265,11 @@ final class Rasad_Jalali {
 		$total %= 146097;
 
 		if ( $total > 36524 ) {
+			$total--;
 			$gy += 100 * (int) floor( $total / 36524 );
 			$total %= 36524;
-
 			if ( $total >= 365 ) {
-				$gy++;
-				$total -= 365;
+				$total++;
 			}
 		}
 

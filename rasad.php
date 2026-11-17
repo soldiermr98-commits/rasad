@@ -3,7 +3,7 @@
  * Plugin Name:       Rasad (رصد)
  * Plugin URI:        https://rasad.ir/
  * Description:       رصد — آمار بازدیدکنندگان بسیار سبک، کاملاً محلی و بدون کوکی برای وردپرس.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Rasad
@@ -19,8 +19,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'RASAD_VERSION', '1.0.0' );
-define( 'RASAD_DB_VERSION', '1.2.0' );
+define( 'RASAD_VERSION', '1.1.0' );
+define( 'RASAD_DB_VERSION', '1.3.0' );
 define( 'RASAD_FILE', __FILE__ );
 define( 'RASAD_DIR', plugin_dir_path( __FILE__ ) );
 

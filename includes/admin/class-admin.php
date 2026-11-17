@@ -83,6 +83,8 @@ final class Rasad_Admin {
 					'rest'     => rest_url( Rasad_Api_Rest::NS ),
 					'nonce'    => wp_create_nonce( 'wp_rest' ),
 					'page'     => Rasad_Settings::PAGE_DASHBOARD,
+					'woo' => class_exists( 'WooCommerce' ),
+					'weekStart' => 'fa_IR' === get_locale() ? 6 : (int) get_option( 'start_of_week', 0 ),
 					'defaults' => array(
 						'from'  => self::default_from(),
 						'to'    => Rasad_Process_Aggregator::local_day( time() ),
@@ -104,7 +106,7 @@ final class Rasad_Admin {
 		$today = Rasad_Process_Aggregator::local_day( time() );
 		list( $start ) = Rasad_Process_Aggregator::day_bounds( $today );
 
-		return Rasad_Process_Aggregator::local_day( $start - ( 6 * 86400 ) );
+		return ( new DateTimeImmutable( $today, wp_timezone() ) )->modify( '-6 days' )->format( 'Y-m-d' );
 	}
 
 	/**
@@ -173,6 +175,10 @@ final class Rasad_Admin {
 			'referrer_col'=> __( 'ارجاع', 'rasad' ),
 			'time_col'    => __( 'زمان', 'rasad' ),
 			'jalali'    => __( 'شمسی', 'rasad' ),
+			'invalid_date' => __( 'تاریخ معتبر وارد کنید؛ ابتدا باید پیش از انتها و بازه حداکثر ۴۰۰ روز باشد.', 'rasad' ),
+			'previous_month' => __( 'ماه قبل', 'rasad' ),
+			'next_month' => __( 'ماه بعد', 'rasad' ),
+			'pick_date' => __( 'انتخاب تاریخ', 'rasad' ),
 			'gregorian' => __( 'میلادی', 'rasad' ),
 		);
 	}
@@ -187,313 +193,64 @@ final class Rasad_Admin {
 		if ( ! current_user_can( Rasad_Settings::capability() ) ) {
 			wp_die( esc_html__( 'شما اجازهٔ دسترسی به این صفحه را ندارید.', 'rasad' ) );
 		}
-
-		$today = Rasad_Process_Aggregator::local_day( time() );
+		$reports = array(
+			'pages' => __( 'صفحات پربازدید', 'rasad' ), 'entries' => __( 'صفحات ورود', 'rasad' ),
+			'exits' => __( 'صفحات خروج', 'rasad' ), 'posts' => __( 'نوشته‌های برتر', 'rasad' ),
+			'post_types' => __( 'نوع نوشته', 'rasad' ), 'referrers' => __( 'منابع ورودی', 'rasad' ),
+			'search_engines' => __( 'موتورهای جستجو', 'rasad' ), 'social_networks' => __( 'شبکه‌های اجتماعی', 'rasad' ),
+			'campaigns' => __( 'کمپین‌ها', 'rasad' ), 'terms' => __( 'جستجوی داخلی سایت', 'rasad' ),
+			'countries' => __( 'کشورها', 'rasad' ), 'cities' => __( 'شهرها', 'rasad' ),
+			'devices' => __( 'دستگاه‌ها', 'rasad' ), 'browsers' => __( 'مرورگرها', 'rasad' ), 'os' => __( 'سیستم‌عامل‌ها', 'rasad' ),
+		);
 		?>
-		<div class="rasad-dash rasad-demo" dir="rtl">
-
-			<!-- Top Navigation Bar -->
-			<header class="rasad-header">
-				<div class="rasad-header-start">
-					<div class="rasad-logo">
-						<span class="rasad-logo-text">رصد</span>
-						<span class="rasad-live-dot" title="<?php esc_attr_e( 'سیستم فعال است', 'rasad' ); ?>" aria-hidden="true"></span>
-					</div>
-					<div class="rasad-live-badge">
-						<span class="rasad-live-dot" aria-hidden="true"></span>
-						<span><?php esc_html_e( 'کاربر آنلاین همین الان', 'rasad' ); ?></span>
-					</div>
-					<nav class="rasad-nav">
-						<a class="rasad-nav-link is-active" href="#"><?php esc_html_e( 'پیشخوان', 'rasad' ); ?></a>
-						<a class="rasad-nav-link" href="#"><?php esc_html_e( 'زنده', 'rasad' ); ?></a>
-						<a class="rasad-nav-link" href="#"><?php esc_html_e( 'صفحات', 'rasad' ); ?></a>
-						<a class="rasad-nav-link" href="#"><?php esc_html_e( 'منابع ورودی', 'rasad' ); ?></a>
-						<a class="rasad-nav-link" href="#"><?php esc_html_e( 'مخاطبان', 'rasad' ); ?></a>
-						<a class="rasad-nav-link" href="#"><?php esc_html_e( 'تنظیمات', 'rasad' ); ?></a>
-					</nav>
-				</div>
-				<div class="rasad-header-end">
-					<button class="rasad-btn rasad-btn-ghost">
-						<span class="rasad-icon">compare_arrows</span><?php esc_html_e( 'مقایسه با دوره قبل', 'rasad' ); ?>
-					</button>
-					<button class="rasad-btn rasad-btn-primary">
-						<span class="rasad-icon">download</span><?php esc_html_e( 'خروجی گزارش', 'rasad' ); ?>
-					</button>
-					<div class="rasad-utils">
-						<button class="rasad-icon-btn" title="<?php esc_attr_e( 'تقویم شمسی', 'rasad' ); ?>"><span class="rasad-icon">calendar_today</span></button>
-						<button class="rasad-icon-btn" title="<?php esc_attr_e( 'حالت تاریک', 'rasad' ); ?>"><span class="rasad-icon">dark_mode</span></button>
-					</div>
-				</div>
-			</header>
-
-			<main class="rasad-main">
-
-				<!-- Secondary Toolbar -->
-				<section class="rasad-toolbar">
-					<div class="rasad-ranges" role="group" aria-label="<?php esc_attr_e( 'بازهٔ زمانی', 'rasad' ); ?>">
-						<button type="button" class="rasad-range" data-range="today"><?php esc_html_e( 'امروز', 'rasad' ); ?></button>
-						<button type="button" class="rasad-range" data-range="yesterday"><?php esc_html_e( 'دیروز', 'rasad' ); ?></button>
-						<button type="button" class="rasad-range is-active" data-range="7d"><?php esc_html_e( '۷ روز', 'rasad' ); ?></button>
-						<button type="button" class="rasad-range" data-range="30d"><?php esc_html_e( '۳۰ روز', 'rasad' ); ?></button>
-						<button type="button" class="rasad-range" data-range="90d"><?php esc_html_e( '۹۰ روز', 'rasad' ); ?></button>
-						<button type="button" class="rasad-range" data-range="custom"><?php esc_html_e( 'دلخواه', 'rasad' ); ?></button>
-					</div>
-					<div class="rasad-custom-range">
-						<label><?php esc_html_e( 'از', 'rasad' ); ?> <input type="date" name="from" class="rasad-from" max="<?php echo esc_attr( $today ); ?>" /></label>
-						<label><?php esc_html_e( 'تا', 'rasad' ); ?> <input type="date" name="to" class="rasad-to" max="<?php echo esc_attr( $today ); ?>" /></label>
-						<button type="submit" class="rasad-btn rasad-btn-ghost rasad-calendar" title="<?php esc_attr_e( 'اعمال', 'rasad' ); ?>">
-							<span class="rasad-icon">calendar_month</span><?php esc_html_e( 'اعمال', 'rasad' ); ?>
-						</button>
-						<a href="<?php echo esc_url( self::csv_url() ); ?>" class="rasad-btn rasad-btn-ghost"><?php esc_html_e( 'خروجی CSV', 'rasad' ); ?></a>
-					</div>
-					<p class="rasad-status" role="status" aria-live="polite"></p>
-				</section>
-
-				<!-- Stat Cards -->
-				<section class="rasad-cards">
-					<div class="rasad-card" data-metric="views">
-						<span class="rasad-card-label"><?php esc_html_e( 'بازدیدها', 'rasad' ); ?></span>
-						<div class="rasad-card-row">
-							<strong class="rasad-card-value">—</strong>
-							<span class="rasad-card-delta"></span>
-						</div>
-						<div class="rasad-spark"><svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0,22 Q15,26 30,14 T60,10 T85,16 T100,4 L100,28 L0,28 Z" fill="var(--rasad-accent)" opacity="0.22"/><path d="M0,22 Q15,26 30,14 T60,10 T85,16 T100,4" fill="none" stroke="var(--rasad-accent)" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-					</div>
-					<div class="rasad-card" data-metric="visitors">
-						<span class="rasad-card-label"><?php esc_html_e( 'بازدیدکنندگان یکتا', 'rasad' ); ?></span>
-						<div class="rasad-card-row">
-							<strong class="rasad-card-value">—</strong>
-							<span class="rasad-card-delta"></span>
-						</div>
-						<div class="rasad-spark"><svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0,20 Q20,10 40,18 T75,8 T100,3 L100,28 L0,28 Z" fill="var(--rasad-accent)" opacity="0.22"/><path d="M0,20 Q20,10 40,18 T75,8 T100,3" fill="none" stroke="var(--rasad-accent)" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-					</div>
-					<div class="rasad-card" data-metric="sessions">
-						<span class="rasad-card-label"><?php esc_html_e( 'نشست‌ها', 'rasad' ); ?></span>
-						<div class="rasad-card-row">
-							<strong class="rasad-card-value">—</strong>
-							<span class="rasad-card-delta"></span>
-						</div>
-						<div class="rasad-spark"><svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0,24 Q25,22 45,12 T80,14 T100,2 L100,28 L0,28 Z" fill="var(--rasad-accent)" opacity="0.22"/><path d="M0,24 Q25,22 45,12 T80,14 T100,2" fill="none" stroke="var(--rasad-accent)" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-					</div>
-					<div class="rasad-card" data-metric="bounce_rate">
-						<span class="rasad-card-label"><?php esc_html_e( 'نرخ پرش', 'rasad' ); ?></span>
-						<div class="rasad-card-row">
-							<strong class="rasad-card-value">—</strong>
-							<span class="rasad-card-delta"></span>
-						</div>
-						<div class="rasad-spark"><svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0,8 Q30,12 55,20 T80,18 T100,24 L100,28 L0,28 Z" fill="var(--rasad-accent)" opacity="0.22"/><path d="M0,8 Q30,12 55,20 T80,18 T100,24" fill="none" stroke="var(--rasad-accent)" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-					</div>
-					<div class="rasad-card" data-metric="avg_duration">
-						<span class="rasad-card-label"><?php esc_html_e( 'میانگین زمان ماندگاری', 'rasad' ); ?></span>
-						<div class="rasad-card-row">
-							<strong class="rasad-card-value">—</strong>
-							<span class="rasad-card-delta"></span>
-						</div>
-						<div class="rasad-spark"><svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0,18 Q20,24 45,15 T75,9 T100,4 L100,28 L0,28 Z" fill="var(--rasad-accent)" opacity="0.22"/><path d="M0,18 Q20,24 45,15 T75,9 T100,4" fill="none" stroke="var(--rasad-accent)" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-					</div>
-				</section>
-
-				<!-- Time Series Chart -->
-				<section class="rasad-panel rasad-chart-section">
-					<div class="rasad-chart-head">
-						<div>
-							<h2 class="rasad-chart-title"><?php esc_html_e( 'روند بازدید و کاربران یکتا', 'rasad' ); ?></h2>
-							<p class="rasad-chart-sub"><?php esc_html_e( 'تفکیک روزانه ترافیک ورودی در مقایسه با هفته ماقبل', 'rasad' ); ?></p>
-						</div>
-						<div class="rasad-chart-ctrl">
-							<div class="rasad-legend">
-								<span class="rasad-legend-dot" style="background:var(--rasad-accent)"></span><span><?php esc_html_e( 'دوره فعلی', 'rasad' ); ?></span>
-								<span class="rasad-legend-dot" style="background:var(--rasad-secondary);border-top:1px dashed var(--rasad-secondary)"></span><span><?php esc_html_e( 'دوره قبل', 'rasad' ); ?></span>
-							</div>
-							<div class="rasad-granularity">
-								<button class="rasad-chip"><?php esc_html_e( 'ساعتی', 'rasad' ); ?></button>
-								<button class="rasad-chip is-active"><?php esc_html_e( 'روزانه', 'rasad' ); ?></button>
-							</div>
-						</div>
-					</div>
-					<div class="rasad-chart-wrap">
-						<div class="rasad-chart" data-granularity=""></div>
-						<div class="rasad-tooltip" style="opacity:0;">
-							<div class="rasad-tt-head"><span class="rasad-tt-date">—</span><span class="rasad-tt-dot"></span></div>
-							<div class="rasad-tt-row"><span class="rasad-tt-dot" style="background:var(--rasad-accent)"></span><span><?php esc_html_e( 'بازدید فعلی:', 'rasad' ); ?></span><span class="rasad-tt-val">—</span></div>
-							<div class="rasad-tt-row"><span class="rasad-tt-dot" style="background:var(--rasad-secondary)"></span><span><?php esc_html_e( 'دوره قبل:', 'rasad' ); ?></span><span class="rasad-tt-val">—</span></div>
-							<div class="rasad-tt-foot"><span class="rasad-tt-diff">—</span><span class="rasad-icon">trending_up</span></div>
-						</div>
-						<div class="rasad-xaxis">
-							<span>شنبه ۱۸ آبان</span><span>یکشنبه ۱۹ آبان</span><span>دوشنبه ۲۰ آبان</span><span class="is-active">سه‌شنبه ۲۱ آبان</span><span>چهارشنبه ۲۲ آبان</span><span>پنج‌شنبه ۲۳ آبان</span><span>جمعه ۲۴ آبان</span>
-						</div>
-					</div>
-				</section>
-
-				<!-- Breakdown Panels -->
-				<section class="rasad-panels">
-
-					<!-- Top Pages -->
-					<div class="rasad-panel">
-						<div class="rasad-panel-head">
-							<div class="rasad-panel-icon">📄</div>
-							<h3 class="rasad-panel-title"><?php esc_html_e( 'صفحات پربازدید', 'rasad' ); ?></h3>
-							<a class="rasad-view-all" href="#"><?php esc_html_e( 'مشاهده همه', 'rasad' ); ?> <span class="rasad-icon">chevron_left</span></a>
-						</div>
-						<div class="rasad-list">
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:35%"></div><span class="rasad-list-path">/blog/seo-guide</span><span class="rasad-list-val">— <span class="rasad-list-pct">—</span></span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:26%"></div><span class="rasad-list-path">/shop/wireless-headphones</span><span class="rasad-list-val">— <span class="rasad-list-pct">—</span></span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:15%"></div><span class="rasad-list-path">/about-us</span><span class="rasad-list-val">— <span class="rasad-list-pct">—</span></span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:10%"></div><span class="rasad-list-path">/pricing</span><span class="rasad-list-val">— <span class="rasad-list-pct">—</span></span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:7%"></div><span class="rasad-list-path">/contact</span><span class="rasad-list-val">— <span class="rasad-list-pct">—</span></span></div>
-						</div>
-					</div>
-
-					<!-- Referrers -->
-					<div class="rasad-panel">
-						<div class="rasad-panel-head">
-							<div class="rasad-panel-icon">🔗</div>
-							<h3 class="rasad-panel-title"><?php esc_html_e( 'منابع ورودی', 'rasad' ); ?></h3>
-							<span class="rasad-panel-sub"><?php esc_html_e( 'بر اساس نشست', 'rasad' ); ?></span>
-						</div>
-						<div class="rasad-ref-groups"></div>
-						<div class="rasad-list">
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:62%"></div><span class="rasad-list-avatar">G</span><span class="rasad-list-path"><?php esc_html_e( 'گوگل ارگانیک (Google)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:18%"></div><span class="rasad-list-icon">🔗</span><span class="rasad-list-path"><?php esc_html_e( 'مستقیم (Direct)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:9%"></div><span class="rasad-list-icon">✈️</span><span class="rasad-list-path"><?php esc_html_e( 'تلگرام (Telegram)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:6%"></div><span class="rasad-list-icon">📷</span><span class="rasad-list-path"><?php esc_html_e( 'اینستاگرام (Instagram)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:5%"></div><span class="rasad-list-avatar" style="background:#000;color:#fff">𝕏</span><span class="rasad-list-path"><?php esc_html_e( 'توییتر / ایکس (Twitter)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-						</div>
-					</div>
-
-					<!-- Geo -->
-					<div class="rasad-panel">
-						<div class="rasad-panel-head">
-							<div class="rasad-panel-icon">🌍</div>
-							<h3 class="rasad-panel-title"><?php esc_html_e( 'کشورها و شهرها', 'rasad' ); ?></h3>
-							<span class="rasad-panel-sub"><?php esc_html_e( 'شهرهای پیشرو', 'rasad' ); ?></span>
-						</div>
-						<div class="rasad-list">
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:84%"></div><span class="rasad-list-flag">🇮🇷</span><span class="rasad-list-path"><?php esc_html_e( 'ایران (تهران، اصفهان، مشهد)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:6%"></div><span class="rasad-list-flag">🇩🇪</span><span class="rasad-list-path"><?php esc_html_e( 'آلمان (فرانکفورت)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:4%"></div><span class="rasad-list-flag">🇨🇦</span><span class="rasad-list-path"><?php esc_html_e( 'کانادا (تورنتو)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:3%"></div><span class="rasad-list-flag">🇦🇪</span><span class="rasad-list-path"><?php esc_html_e( 'امارات متحده (دبی)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:3%"></div><span class="rasad-list-flag">🇳🇱</span><span class="rasad-list-path"><?php esc_html_e( 'هلند (آمستردام)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-						</div>
-					</div>
-
-					<!-- Devices -->
-					<div class="rasad-panel">
-						<div class="rasad-panel-head">
-							<div class="rasad-panel-icon">📱</div>
-							<h3 class="rasad-panel-title"><?php esc_html_e( 'دستگاه‌های کاربران', 'rasad' ); ?></h3>
-							<span class="rasad-panel-sub"><?php esc_html_e( 'تفکیک ابزار', 'rasad' ); ?></span>
-						</div>
-						<div class="rasad-seg">
-							<div class="rasad-seg-bar" style="--w:68%;background:var(--rasad-accent-soft)" title="<?php esc_attr_e( 'موبایل: ۶۸٪', 'rasad' ); ?>"></div>
-							<div class="rasad-seg-bar" style="--w:28%;background:var(--rasad-secondary-soft)" title="<?php esc_attr_e( 'دسکتاپ: ۲۸٪', 'rasad' ); ?>"></div>
-							<div class="rasad-seg-bar" style="--w:4%;background:var(--rasad-border)" title="<?php esc_attr_e( 'تبلت: ۴٪', 'rasad' ); ?>"></div>
-						</div>
-						<div class="rasad-list">
-							<div class="rasad-list-row"><span class="rasad-list-dot" style="background:var(--rasad-accent)"></span><span class="rasad-list-icon">📱</span><span class="rasad-list-path"><?php esc_html_e( 'موبایل (Mobile)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><span class="rasad-list-dot" style="background:var(--rasad-secondary)"></span><span class="rasad-list-icon">💻</span><span class="rasad-list-path"><?php esc_html_e( 'دسکتاپ (Desktop)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><span class="rasad-list-dot" style="background:var(--rasad-muted)"></span><span class="rasad-list-icon">📟</span><span class="rasad-list-path"><?php esc_html_e( 'تبلت (Tablet)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-						</div>
-					</div>
-
-					<!-- Browsers -->
-					<div class="rasad-panel">
-						<div class="rasad-panel-head">
-							<div class="rasad-panel-icon">🌐</div>
-							<h3 class="rasad-panel-title"><?php esc_html_e( 'مرورگرها', 'rasad' ); ?></h3>
-							<span class="rasad-panel-sub"><?php esc_html_e( 'نسخه‌های وب', 'rasad' ); ?></span>
-						</div>
-						<div class="rasad-list">
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:64%"></div><span class="rasad-list-icon">🌐</span><span class="rasad-list-path"><?php esc_html_e( 'گوگل کروم (Chrome)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:22%"></div><span class="rasad-list-icon">🧭</span><span class="rasad-list-path"><?php esc_html_e( 'سافاری (Safari)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:9%"></div><span class="rasad-list-icon">🦊</span><span class="rasad-list-path"><?php esc_html_e( 'فایرفاکس (Firefox)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:5%"></div><span class="rasad-list-icon">🌐</span><span class="rasad-list-path"><?php esc_html_e( 'مایکروسافت اج (Edge)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-						</div>
-					</div>
-
-					<!-- OS -->
-					<div class="rasad-panel">
-						<div class="rasad-panel-head">
-							<div class="rasad-panel-icon">💻</div>
-							<h3 class="rasad-panel-title"><?php esc_html_e( 'سیستم‌عامل‌ها', 'rasad' ); ?></h3>
-							<span class="rasad-panel-sub"><?php esc_html_e( 'محیط کاربر', 'rasad' ); ?></span>
-						</div>
-						<div class="rasad-list">
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:52%"></div><span class="rasad-list-icon">🤖</span><span class="rasad-list-path"><?php esc_html_e( 'اندروید (Android)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:24%"></div><span class="rasad-list-icon">🪟</span><span class="rasad-list-path"><?php esc_html_e( 'ویندوز (Windows)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:18%"></div><span class="rasad-list-icon">📱</span><span class="rasad-list-path"><?php esc_html_e( 'آی‌او‌اس (iOS)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:5%"></div><span class="rasad-list-icon">🍎</span><span class="rasad-list-path"><?php esc_html_e( 'مک‌او‌اس (macOS)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-							<div class="rasad-list-row"><div class="rasad-bar" style="--w:1%"></div><span class="rasad-list-icon">🐧</span><span class="rasad-list-path"><?php esc_html_e( 'لینوکس (Linux)', 'rasad' ); ?></span><span class="rasad-list-val">—</span></div>
-						</div>
-					</div>
-
-				</section>
-
-				<!-- Footer -->
-				<footer class="rasad-footer">
-					<div class="rasad-footer-left">
-						<span class="rasad-dot"></span>
-						<span><?php esc_html_e( 'سامانه آمارگیر رصد نسخه ۲.۴.۰ فعال است (همگام‌سازی بدون کوکی، کاملاً مطابق حریم خصوصی)', 'rasad' ); ?></span>
-					</div>
-					<div class="rasad-footer-right">
-						<a href="#"><?php esc_html_e( 'مستندات API', 'rasad' ); ?></a>
-						<a href="#"><?php esc_html_e( 'گزارش وضعیت سرور', 'rasad' ); ?></a>
-						<a href="#"><?php esc_html_e( 'پشتیبانی', 'rasad' ); ?></a>
-					</div>
-				</footer>
-
-				<!-- Tabs + Live panel (kept for admin.js tab switching) -->
-				<div class="rasad-tabs" role="tablist" aria-label="<?php esc_attr_e( 'بخش‌های داشبورد', 'rasad' ); ?>" style="margin-top:2rem;">
-					<button type="button" class="rasad-tab is-active" role="tab" aria-selected="true" data-rasad-tab="stats"><?php esc_html_e( 'آمار', 'rasad' ); ?></button>
-					<button type="button" class="rasad-tab" role="tab" aria-selected="false" data-rasad-tab="live"><?php esc_html_e( 'زنده', 'rasad' ); ?></button>
-				</div>
-
-				<div class="rasad-stats-view" data-rasad-panel="stats" style="display:none;"></div>
-
-				<div class="rasad-live-view" data-rasad-panel="live" hidden>
-					<div class="rasad-live-head">
-						<span class="rasad-live-dot" aria-hidden="true"></span>
-						<strong class="rasad-live-count">—</strong>
-						<span class="rasad-live-label"><?php esc_html_e( 'بازدیدکنندهٔ آنلاین', 'rasad' ); ?></span>
-						<span class="rasad-live-note"><?php esc_html_e( 'به‌روزرسانی خودکار هر ۱۵ ثانیه', 'rasad' ); ?></span>
-					</div>
-					<p class="rasad-live-error" role="status" aria-live="polite"></p>
-
-					<div class="rasad-panel">
-						<table class="rasad-table" data-table="live">
-							<thead><tr>
-								<th><?php esc_html_e( 'بازدیدکننده', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'صفحه', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'کشور', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'دستگاه', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'ارجاع', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'بازدیدها', 'rasad' ); ?></th>
-							</tr></thead>
-							<tbody></tbody>
-						</table>
-					</div>
-
-					<div class="rasad-panel">
-						<h2 class="rasad-panel-title"><?php esc_html_e( 'آخرین رویدادها', 'rasad' ); ?></h2>
-						<table class="rasad-table" data-table="feed">
-							<thead><tr>
-								<th><?php esc_html_e( 'زمان', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'صفحه', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'بازدیدکننده', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'کشور', 'rasad' ); ?></th>
-								<th><?php esc_html_e( 'ارجاع', 'rasad' ); ?></th>
-							</tr></thead>
-							<tbody></tbody>
-						</table>
-					</div>
-				</div>
-
-				<noscript>
-					<p class="rasad-noscript"><?php esc_html_e( 'برای نمایش داشبورد به جاوااسکریپت نیاز است.', 'rasad' ); ?></p>
-				</noscript>
-
-			</main>
-		</div>
+		<div class="wrap rasad-dash" dir="<?php echo is_rtl() ? 'rtl' : 'ltr'; ?>">
+		<header class="rasad-header"><h1><?php esc_html_e( 'رصد — آمار بازدید', 'rasad' ); ?></h1>
+		<a href="<?php echo esc_url( admin_url( 'admin.php?page=' . Rasad_Settings::PAGE ) ); ?>"><?php esc_html_e( 'تنظیمات', 'rasad' ); ?></a></header>
+		<main class="rasad-main">
+		<div class="rasad-tabs" role="tablist">
+		<button type="button" class="rasad-tab is-active" role="tab" aria-selected="true" data-rasad-tab="stats"><?php esc_html_e( 'آمار', 'rasad' ); ?></button>
+		<button type="button" class="rasad-tab" role="tab" aria-selected="false" data-rasad-tab="live"><?php esc_html_e( 'زنده', 'rasad' ); ?></button></div>
+		<section data-rasad-panel="stats">
+		<div class="rasad-toolbar"><div class="rasad-ranges">
+		<?php foreach ( array( 'today' => __( 'امروز', 'rasad' ), 'yesterday' => __( 'دیروز', 'rasad' ), '7d' => __( '۷ روز', 'rasad' ), '30d' => __( '۳۰ روز', 'rasad' ), '90d' => __( '۹۰ روز', 'rasad' ), 'custom' => __( 'دلخواه', 'rasad' ) ) as $key => $label ) : ?>
+		<button type="button" class="rasad-range <?php echo '7d' === $key ? 'is-active' : ''; ?>" data-range="<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $label ); ?></button>
+		<?php endforeach; ?></div>
+		<form class="rasad-custom-range">
+		<label><?php esc_html_e( 'از', 'rasad' ); ?> <input type="text" class="rasad-from" name="from" dir="ltr" autocomplete="off" required /></label>
+		<label><?php esc_html_e( 'تا', 'rasad' ); ?> <input type="text" class="rasad-to" name="to" dir="ltr" autocomplete="off" required /></label>
+		<button type="submit" class="rasad-btn rasad-btn-ghost"><?php esc_html_e( 'اعمال', 'rasad' ); ?></button>
+		<a class="rasad-export rasad-btn rasad-btn-ghost" href="<?php echo esc_url( self::csv_url() ); ?>"><?php esc_html_e( 'خروجی CSV', 'rasad' ); ?></a>
+		<select class="rasad-export-report" aria-label="<?php esc_attr_e( 'گزارش خروجی', 'rasad' ); ?>">
+		<?php foreach ( array( 'daily' => __( 'روزانه', 'rasad' ), 'pages' => __( 'صفحات', 'rasad' ), 'dimensions' => __( 'ابعاد', 'rasad' ) ) as $key => $label ) : ?>
+		<option value="<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $label ); ?></option><?php endforeach; ?>
+		<?php if ( class_exists( 'WooCommerce' ) ) : ?><option value="woo"><?php esc_html_e( 'فروشگاه', 'rasad' ); ?></option><?php endif; ?></select>
+		</form><p class="rasad-date-hint"></p><p class="rasad-status" role="status" aria-live="polite"></p></div>
+		<section class="rasad-cards">
+		<?php foreach ( array( 'views', 'visitors', 'sessions', 'bounce_rate', 'avg_duration' ) as $metric ) : ?>
+		<div class="rasad-card" data-metric="<?php echo esc_attr( $metric ); ?>"><span class="rasad-card-label"><?php $strings = self::strings(); echo esc_html( $strings[ $metric ] ); ?></span><strong class="rasad-card-value">—</strong><span class="rasad-card-delta"></span></div>
+		<?php endforeach; ?></section>
+		<section class="rasad-panel"><h2><?php esc_html_e( 'روند بازدیدها و بازدیدکنندگان', 'rasad' ); ?></h2><div class="rasad-chart"></div></section>
+		<div class="rasad-ref-groups"></div><section class="rasad-panels">
+		<?php foreach ( $reports as $key => $label ) { self::report_table( $key, $label ); } ?>
+		</section>
+		<?php if ( class_exists( 'WooCommerce' ) ) : ?>
+		<section class="rasad-woo"><h2><?php esc_html_e( 'گزارش فروشگاه', 'rasad' ); ?></h2><p><?php esc_html_e( 'ارزها جدا هستند. درآمد کل و ارجاع شامل مالیات و ارسال است؛ درآمد محصول پس از تخفیف و بدون مالیات و ارسال است.', 'rasad' ); ?></p>
+		<?php foreach ( array( 'woo_daily' => __( 'فروش روزانه', 'rasad' ), 'woo_products' => __( 'محصولات', 'rasad' ), 'woo_referrers' => __( 'ارجاع فروش', 'rasad' ) ) as $key => $label ) { self::report_table( $key, $label, true ); } ?></section>
+		<?php endif; ?></section>
+		<section data-rasad-panel="live" hidden><div class="rasad-live-head"><strong class="rasad-live-count">—</strong> <?php esc_html_e( 'بازدیدکنندهٔ آنلاین', 'rasad' ); ?></div><p class="rasad-live-error" role="status"></p>
+		<?php self::report_table( 'live', __( 'بازدیدکنندگان زنده', 'rasad' ), false, array( __( 'بازدیدکننده', 'rasad' ), __( 'صفحه', 'rasad' ), __( 'کشور / شهر', 'rasad' ), __( 'دستگاه', 'rasad' ), __( 'ارجاع', 'rasad' ), __( 'بازدید', 'rasad' ) ) );
+		self::report_table( 'feed', __( 'آخرین رویدادها', 'rasad' ), false, array( __( 'زمان', 'rasad' ), __( 'صفحه', 'rasad' ), __( 'بازدیدکننده', 'rasad' ), __( 'کشور', 'rasad' ), __( 'ارجاع', 'rasad' ) ) ); ?>
+		</section><noscript><?php esc_html_e( 'برای نمایش داشبورد به جاوااسکریپت نیاز است.', 'rasad' ); ?></noscript></main></div>
 		<?php
+	}
+
+	/** Renders a semantic, empty report table populated by REST. */
+	private static function report_table( $key, $label, $woo = false, $headers = array() ) {
+		if ( empty( $headers ) ) {
+			$headers = $woo ? array( __( 'عنوان', 'rasad' ), __( 'ارز', 'rasad' ), __( 'بازدید محصول', 'rasad' ), __( 'افزودن به سبد', 'rasad' ), __( 'تسویه', 'rasad' ), __( 'سفارش', 'rasad' ), __( 'واحد ردیابی‌شده (سبد + خرید)', 'rasad' ), __( 'درآمد', 'rasad' ) ) : array( __( 'عنوان', 'rasad' ), __( 'بازدید / تعداد', 'rasad' ), __( 'بازدیدکنندگان روزانه', 'rasad' ) );
+		}
+		echo '<section class="rasad-panel"><h3 class="rasad-panel-title">' . esc_html( $label ) . '</h3><div class="rasad-table-wrap"><table class="rasad-table" data-table="' . esc_attr( $key ) . '"><thead><tr>';
+		foreach ( $headers as $header ) { echo '<th scope="col">' . esc_html( $header ) . '</th>'; }
+		echo '</tr></thead><tbody></tbody></table></div></section>';
 	}
 }

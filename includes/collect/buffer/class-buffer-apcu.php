@@ -1,143 +1,122 @@
 <?php
 /**
- * APCu buffer driver — shared memory, fast, for mid-to-high traffic hosts.
- *
- * Hits are kept as a serialized array under a single APCu key. APCu lives
- * in shared RAM, so the buffer survives across requests within the same
- * PHP-FPM pool but is lost when the pool restarts — acceptable for a
- * transient buffer that the aggregator drains every minute.
+ * APCu queue: individual hit entries with serialized metadata updates.
+ * Volatile storage: eviction, cache clears and pool restarts can lose hits.
  *
  * @package Rasad
  */
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * APCu-based buffer driver.
- */
 final class Rasad_Buffer_Apcu implements Rasad_Buffer_Interface {
-
-	/**
-	 * APCu key under which the hit queue is stored.
-	 *
-	 * @var string
-	 */
 	const KEY = 'rasad_buffer_apcu';
 
-	/**
-	 * Whether APCu is usable on this host.
-	 *
-	 * @return bool
-	 */
+	private function key() {
+		global $wpdb;
+		$scope = ABSPATH . '|' . ( defined( 'DB_NAME' ) ? DB_NAME : '' ) . '|' . ( isset( $wpdb->prefix ) ? $wpdb->prefix : '' ) . '|' . ( function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 0 );
+		return self::KEY . ':' . hash( 'sha256', $scope );
+	}
+
 	public function is_available() {
-		return function_exists( 'apcu_fetch' )
-			&& function_exists( 'apcu_store' )
-			&& (bool) ini_get( 'apcu.enabled' );
+		return function_exists( 'apcu_enabled' ) && apcu_enabled()
+			&& function_exists( 'apcu_fetch' ) && function_exists( 'apcu_store' ) && function_exists( 'apcu_delete' );
 	}
 
-	/**
-	 * Reads the current hit queue from APCu.
-	 *
-	 * @return array<int,array<string,mixed>> Hit queue (empty when missing).
-	 */
-	private function read_queue() {
-		$value = apcu_fetch( self::KEY, $success );
-
-		if ( ! $success || ! is_array( $value ) ) {
-			return array();
-		}
-
-		return $value;
-	}
-
-	/**
-	 * Writes the hit queue back to APCu.
-	 *
-	 * @param array<int,array<string,mixed>> $queue Hit queue.
-	 * @return bool
-	 */
-	private function write_queue( array $queue ) {
-		return apcu_store( self::KEY, $queue, 0 ); // 0 = no TTL, persists until pool restart.
-	}
-
-	/**
-	 * {@inheritDoc}
-	 */
-	public function push( array $hit ) {
-		if ( ! $this->is_available() ) {
+	private function lock() {
+		// OS locks cannot expire underneath a paused worker and release on exit.
+		$fh = @fopen( sys_get_temp_dir() . '/rasad-apcu-' . hash( 'sha256', $this->key() ) . '.lock', 'c' );
+		if ( false === $fh ) {
 			return false;
 		}
-
-		$queue = $this->read_queue();
-		$queue[] = $hit;
-
-		return $this->write_queue( $queue );
-	}
-
-	/**
-	 * {@inheritDoc}
-	 *
-	 * Note: APCu read-modify-write is not atomic across processes, so a
-	 * concurrent push could theoretically be lost. For the aggregator
-	 * (single cron worker at a time) this is acceptable.
-	 */
-	public function pop_batch( $limit ) {
-		$limit = max( 1, (int) $limit );
-		$batch = array();
-
-		if ( ! $this->is_available() ) {
-			return $batch;
-		}
-
-		$queue = $this->read_queue();
-
-		if ( empty( $queue ) ) {
-			return $batch;
-		}
-
-		$take = array_slice( $queue, 0, $limit );
-		$remain = array_slice( $queue, $limit );
-
-		foreach ( $take as $hit ) {
-			if ( is_array( $hit ) ) {
-				$batch[] = $hit;
+		$deadline = microtime( true ) + 0.1;
+		do {
+			if ( flock( $fh, LOCK_EX | LOCK_NB ) ) {
+				return $fh;
 			}
-		}
-
-		$this->write_queue( $remain );
-
-		return $batch;
+			usleep( 1000 );
+		} while ( microtime( true ) < $deadline );
+		fclose( $fh );
+		return false;
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
-	/**
-	 * {@inheritDoc}
-	 *
-	 * Reads without modifying the queue.
-	 */
-	public function peek_batch( $limit ) {
-		$limit = max( 1, (int) $limit );
+	private function state() {
+		$state = apcu_fetch( $this->key(), $success );
+		// A generation avoids reusing orphan entry keys after metadata eviction.
+		return $success && is_array( $state ) ? $state : array( 'generation' => uniqid( '', true ), 'head' => 0, 'tail' => 0 );
+	}
 
-		if ( ! $this->is_available() ) {
-			return array();
+	private function item_key( $state, $id ) {
+		return $this->key() . ':' . $state['generation'] . ':' . $id;
+	}
+
+	public function push( array $hit ) {
+		if ( ! $this->is_available() || false === ( $lock = $this->lock() ) ) {
+			return false;
 		}
+		try {
+			$state = $this->state();
+			$key = $this->item_key( $state, $state['tail'] );
+			if ( ! apcu_store( $key, $hit, 0 ) ) {
+				return false;
+			}
+			++$state['tail'];
+			if ( ! apcu_store( $this->key(), $state, 0 ) ) {
+				apcu_delete( $key );
+				return false;
+			}
+			return true;
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+	}
 
-		$queue = $this->read_queue();
+	public function pop_batch( $limit ) {
+		return $this->read_batch( $limit, true );
+	}
 
-		return is_array( $queue ) ? array_slice( $queue, 0, $limit ) : array();
+	public function peek_batch( $limit ) {
+		return $this->read_batch( $limit, false );
+	}
+
+	private function read_batch( $limit, $remove ) {
+		$batch = array();
+		if ( ! $this->is_available() || false === ( $lock = $this->lock() ) ) {
+			return $batch;
+		}
+		try {
+			$state = $this->state();
+			$keys = array();
+			$limit = max( 1, (int) $limit );
+			while ( $state['head'] < $state['tail'] && count( $batch ) < $limit ) {
+				$key = $this->item_key( $state, $state['head']++ );
+				$hit = apcu_fetch( $key, $success );
+				$keys[] = $key;
+				if ( $success && is_array( $hit ) ) {
+					$batch[] = $hit;
+				}
+			}
+			if ( $remove ) {
+				if ( ! apcu_store( $this->key(), $state, 0 ) ) {
+					return array();
+				}
+				foreach ( $keys as $key ) {
+					apcu_delete( $key );
+				}
+			}
+			return $batch;
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
 	}
 
 	public function count() {
 		if ( ! $this->is_available() ) {
 			return 0;
 		}
-
-		$queue = $this->read_queue();
-
-		return is_array( $queue ) ? count( $queue ) : 0;
+		$state = $this->state();
+		return max( 0, $state['tail'] - $state['head'] );
 	}
 }

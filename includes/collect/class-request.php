@@ -318,6 +318,7 @@ final class Rasad_Collect_Request {
 			return $out;
 		}
 
+		$out['o'] = isset( $data['o'] ) && is_scalar( $data['o'] ) ? max( 0, (int) $data['o'] ) : 0;
 		$out['t'] = isset( $data['t'] ) ? self::clean_text( $data['t'], 255 ) : '';
 		$out['r'] = isset( $data['r'] ) ? self::clean_text( $data['r'], 500 ) : '';
 		$out['w'] = isset( $data['w'] ) ? max( 0, min( 16000, (int) $data['w'] ) ) : 0;
@@ -831,6 +832,7 @@ final class Rasad_Collect_Request {
 		$hit['ip'] = ( ! empty( $settings['ip_anonymize'] ) )
 			? self::anonymize_ip( $ip )
 			: $ip;
+		$hit['wc_product_id'] = isset( $data['o'] ) ? (int) $data['o'] : 0;
 		$hit['ua'] = $ua;
 		$hit['w']  = (int) $data['w'];
 		$hit['l']  = (string) $data['l'];

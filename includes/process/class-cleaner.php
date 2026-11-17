@@ -83,7 +83,9 @@ final class Rasad_Process_Cleaner {
 		$day_cutoff = Rasad_Process_Aggregator::local_day( $cutoff );
 		$stats['events']   = self::purge( Rasad_Installer::table( 'events' ), 'day', $day_cutoff );
 
-		$stats['trimmed'] = self::cap_buffer();
+		// Compact only fully consumed queue files; never discard pending hits.
+		$buffer = Rasad_Plugin::buffer();
+		$stats['trimmed'] = method_exists( $buffer, 'compact' ) ? (int) $buffer->compact() : 0;
 
 		$stats['optimized'] = self::maybe_optimize() ? 1 : 0;
 
@@ -149,87 +151,6 @@ final class Rasad_Process_Cleaner {
 	}
 
 	/**
-	 * Caps every buffer file at MAX_BUFFER_BYTES (keeps the newest lines).
-	 *
-	 * @return int Files trimmed.
-	 */
-	private static function cap_buffer() {
-		$trimmed = 0;
-
-		$files = glob( Rasad_Plugin::storage_dir( 'buffer/hits-*.jsonl' ) );
-
-		if ( ! is_array( $files ) ) {
-			return 0;
-		}
-
-		foreach ( $files as $file ) {
-			$size = @filesize( $file );
-
-			if ( false !== $size && $size > self::MAX_BUFFER_BYTES && self::trim_file( $file ) ) {
-				$trimmed++;
-			}
-		}
-
-		return $trimmed;
-	}
-
-	/**
-	 * Rewrites one buffer file keeping only its tail (line-boundary safe).
-	 *
-	 * @param string $file Absolute path.
-	 * @return bool True when the file was trimmed.
-	 */
-	private static function trim_file( $file ) {
-		$fh = @fopen( $file, 'c+' );
-
-		if ( false === $fh ) {
-			return false;
-		}
-
-		if ( ! flock( $fh, LOCK_EX ) ) {
-			fclose( $fh );
-
-			return false;
-		}
-
-		$stat = fstat( $fh );
-		$size = is_array( $stat ) ? (int) $stat['size'] : 0;
-
-		if ( $size <= self::MAX_BUFFER_BYTES ) {
-			flock( $fh, LOCK_UN );
-			fclose( $fh );
-
-			return false;
-		}
-
-		// Seek near the end, then advance to the next full line.
-		$offset = $size - self::MAX_BUFFER_BYTES;
-		fseek( $fh, $offset );
-		$tail = stream_get_contents( $fh );
-		$tail = is_string( $tail ) ? $tail : '';
-
-		if ( $offset > 0 ) {
-			$nl = strpos( $tail, "\n" );
-
-			if ( false === $nl ) {
-				// A single giant line: keep its last MAX bytes.
-				$tail = substr( $tail, -1 * self::MAX_BUFFER_BYTES );
-			} else {
-				$tail = substr( $tail, $nl + 1 );
-			}
-		}
-
-		ftruncate( $fh, 0 );
-		rewind( $fh );
-		fwrite( $fh, $tail );
-		fflush( $fh );
-		flock( $fh, LOCK_UN );
-		fclose( $fh );
-
-		return true;
-	}
-
-	/**
 	 * Weekly OPTIMIZE of the two write-heavy tables (space reclamation
 	 * after retention purges). Disabled through `rasad_optimize_tables`.
 	 *
@@ -245,9 +166,9 @@ final class Rasad_Process_Cleaner {
 		/**
 		 * Filters whether weekly OPTIMIZE TABLE may run.
 		 *
-		 * @param bool $optimize Default true.
+		 * @param bool $optimize Default false (explicit maintenance opt-in).
 		 */
-		if ( ! apply_filters( 'rasad_optimize_tables', true ) ) {
+		if ( ! apply_filters( 'rasad_optimize_tables', false ) ) {
 			return false;
 		}
 

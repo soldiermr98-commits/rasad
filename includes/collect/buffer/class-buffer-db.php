@@ -25,6 +25,9 @@ final class Rasad_Buffer_Db implements Rasad_Buffer_Interface {
 	 */
 	const TABLE = 'buffer';
 
+	/** Tables already checked by this instance, including switched sites. */
+	private $ready = array();
+
 	/**
 	 * Whether the database is usable on this host.
 	 *
@@ -60,6 +63,9 @@ final class Rasad_Buffer_Db implements Rasad_Buffer_Interface {
 		}
 
 		$table = $this->table_name();
+		if ( isset( $this->ready[ $table ] ) ) {
+			return true;
+		}
 		$charset_collate = $wpdb->get_charset_collate();
 
 		$sql = "CREATE TABLE IF NOT EXISTS {$table} (
@@ -71,8 +77,16 @@ final class Rasad_Buffer_Db implements Rasad_Buffer_Interface {
 		) ENGINE=InnoDB {$charset_collate};";
 
 		$result = $wpdb->query( $sql );
-
-		return false !== $result;
+		if ( false === $result ) {
+			return false;
+		}
+		// Refuse unsafe consumption of a legacy nontransactional table.
+		$engine = $wpdb->get_var( $wpdb->prepare( 'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s', $table ) );
+		if ( 'innodb' !== strtolower( (string) $engine ) ) {
+			return false;
+		}
+		$this->ready[ $table ] = true;
+		return true;
 	}
 
 	/**
@@ -122,50 +136,41 @@ final class Rasad_Buffer_Db implements Rasad_Buffer_Interface {
 
 		$table = $this->table_name();
 
-		// Take the oldest $limit rows.
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name from wpdb prefix.
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT id, hit FROM {$table} ORDER BY id ASC LIMIT %d",
-				$limit
-			)
-		);
-
-		if ( empty( $rows ) ) {
-			return $batch;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return array();
 		}
-
-		$ids = array();
-
-		foreach ( (array) $rows as $row ) {
-			$hit = json_decode( $row->hit, true );
-
-			if ( is_array( $hit ) ) {
-				$batch[] = $hit;
+		try {
+			$rows = $wpdb->get_results( $wpdb->prepare( "SELECT id, hit FROM {$table} ORDER BY id ASC LIMIT %d FOR UPDATE", $limit ) );
+			if ( ! is_array( $rows ) || ! empty( $wpdb->last_error ) ) {
+				$wpdb->query( 'ROLLBACK' );
+				return array();
 			}
-
-			$ids[] = (int) $row->id;
-		}
-
-		if ( empty( $ids ) ) {
+			$ids = array();
+			foreach ( $rows as $row ) {
+				$hit = json_decode( $row->hit, true );
+				if ( is_array( $hit ) ) {
+					$batch[] = $hit;
+				}
+				$ids[] = (int) $row->id;
+			}
+			foreach ( array_chunk( $ids, 100 ) as $chunk ) {
+				$placeholders = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
+				$deleted = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE id IN ({$placeholders})", $chunk ) );
+				if ( false === $deleted || count( $chunk ) !== (int) $deleted ) {
+					$wpdb->query( 'ROLLBACK' );
+					return array();
+				}
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				$wpdb->query( 'ROLLBACK' );
+				return array();
+			}
 			return $batch;
+		} catch ( Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return array();
 		}
-
-		// Delete consumed rows in batches of 100 to avoid over-long IN() lists.
-		foreach ( array_chunk( $ids, 100 ) as $id_chunk ) {
-			$placeholders = implode( ',', array_fill( 0, count( $id_chunk ), '%d' ) );
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name from wpdb prefix.
-			$wpdb->query(
-				$wpdb->prepare(
-					"DELETE FROM {$table} WHERE id IN ({$placeholders})",
-					$id_chunk
-				)
-			);
-		}
-
-		return $batch;
 	}
-
 	/**
 	 * {@inheritDoc}
 	 */
@@ -217,6 +222,6 @@ final class Rasad_Buffer_Db implements Rasad_Buffer_Interface {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name from wpdb prefix.
 		$count = $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
 
-		return is_int( $count ) ? (int) $count : 0;
+		return is_numeric( $count ) ? max( 0, (int) $count ) : 0;
 	}
 }

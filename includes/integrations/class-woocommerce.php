@@ -1,267 +1,202 @@
 <?php
 /**
- * WooCommerce integration (Phase 8).
- *
- * Loaded only when WooCommerce is active. Pushes e-commerce events
- * (product view, add-to-cart, checkout start, purchase) to the Rasad
- * buffer so they flow through the normal aggregation pipeline into
- * rsd_events. Zero overhead when WooCommerce is absent.
- *
- * Event types (Rasad_Process_Referrer constants not reused — these are
- * separate WooCommerce event codes stored in rsd_events.type):
- *   3 = product view
- *   4 = add to cart
- *   5 = checkout started
- *   6 = purchase
+ * Local WooCommerce analytics. No customer fields, cookies, IP or UA are persisted.
  *
  * @package Rasad
  */
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * Rasad WooCommerce integration.
- */
 final class Rasad_Integrations_WooCommerce {
-
-	/**
-	 * Event type: product view.
-	 */
-	const EVENT_PRODUCT_VIEW  = 3;
-
-	/**
-	 * Event type: add to cart.
-	 */
-	const EVENT_ADD_TO_CART   = 4;
-
-	/**
-	 * Event type: checkout started.
-	 */
+	const EVENT_PRODUCT_VIEW = 3;
+	const EVENT_ADD_TO_CART = 4;
 	const EVENT_CHECKOUT_START = 5;
-
-	/**
-	 * Event type: purchase.
-	 */
-	const EVENT_PURCHASE      = 6;
-
-	/**
-	 * Whether hooks have already been registered.
-	 *
-	 * @var bool
-	 */
+	const EVENT_PURCHASE = 6;
 	private static $registered = false;
 
-	/**
-	 * Registers hooks — only when WooCommerce is active.
-	 *
-	 * @return void
-	 */
+	/** Register only after WooCommerce loaded. */
 	public static function hooks() {
-		if ( self::$registered ) {
+		if ( self::$registered || ! self::is_woocommerce_active() ) {
 			return;
 		}
-
-		if ( ! self::is_woocommerce_active() ) {
-			return;
-		}
-
 		self::$registered = true;
-
-		// Product view: when a single product page is rendered.
-		add_action( 'wp', array( __CLASS__, 'track_product_view' ), 12 );
-
-		// Add to cart.
-		add_action( 'woocommerce_add_to_cart', array( __CLASS__, 'track_add_to_cart' ), 10, 2 );
-
-		// Checkout started.
+		add_action( 'wp_head', array( __CLASS__, 'product_tracker_config' ), 5 );
+		add_action( 'woocommerce_add_to_cart', array( __CLASS__, 'track_add_to_cart' ), 10, 6 );
 		add_action( 'woocommerce_before_checkout_form', array( __CLASS__, 'track_checkout_start' ), 10 );
-
-		// Purchase completed (order pay + thankyou page both covered).
+		add_action( 'woocommerce_checkout_create_order', array( __CLASS__, 'capture_order_attribution' ), 10, 2 );
+		add_action( 'woocommerce_store_api_checkout_update_order_meta', array( __CLASS__, 'capture_order_attribution' ), 10, 1 );
 		add_action( 'woocommerce_payment_complete', array( __CLASS__, 'track_purchase' ), 10, 1 );
+		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'track_purchase' ), 10, 1 );
+		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'track_purchase' ), 10, 1 );
 		add_action( 'woocommerce_thankyou', array( __CLASS__, 'track_purchase_from_thankyou' ), 10, 1 );
 	}
 
-	/**
-	 * Whether WooCommerce is active and loaded.
-	 *
-	 * @return bool
-	 */
 	public static function is_woocommerce_active() {
-		return ( function_exists( 'WC' ) && did_action( 'woocommerce_loaded' ) > 0 );
+		return function_exists( 'WC' ) && did_action( 'woocommerce_loaded' ) > 0;
 	}
 
-	/**
-	 * Product view handler.
-	 *
-	 * @return void
-	 */
+	/** Cacheable product identity: actual views are counted from client beacons. */
+	public static function product_tracker_config() {
+		if ( is_product() ) {
+			echo '<script>window.rasadProduct=' . (int) get_queried_object_id() . ';</script>';
+		}
+	}
+
 	public static function track_product_view() {
 		if ( ! is_product() ) {
 			return;
 		}
-
-		global $product;
-
-		if ( ! is_a( $product, 'WC_Product' ) ) {
-			return;
+		// At `wp`, the global product is not guaranteed to have been set yet.
+		$product = wc_get_product( get_queried_object_id() );
+		if ( $product instanceof WC_Product ) {
+			self::push_event( 3, array( 'wc_product_id' => $product->get_id(), 'wc_value' => $product->get_price() ) );
 		}
-
-		self::push_event(
-			self::EVENT_PRODUCT_VIEW,
-			array(
-				'product_id' => $product->get_id(),
-				'value'      => (float) $product->get_price(),
-			)
-		);
 	}
 
-	/**
-	 * Add to cart handler.
-	 *
-	 * @param int    $product_id Product id.
-	 * @param int    $cart_item_key Cart item key.
-	 * @return void
-	 */
-	public static function track_add_to_cart( $product_id, $cart_item_key ) {
-		global $woocommerce;
+	/** WooCommerce passes cart key FIRST, then product id and quantity. */
+	public static function track_add_to_cart( $cart_item_key, $product_id, $quantity = 1, $variation_id = 0, $variation = array(), $cart_item_data = array() ) {
+		$product = wc_get_product( $variation_id ? $variation_id : $product_id );
+		self::push_event( 4, array(
+			'wc_product_id' => (int) ( $variation_id ? $variation_id : $product_id ),
+			'wc_quantity' => max( 0, (int) $quantity ),
+			'wc_value' => $product instanceof WC_Product ? (float) $product->get_price() * $quantity : 0,
+		) );
+	}
 
-		$value = 0.0;
+	public static function track_checkout_start() {
+		if ( ! is_checkout() || ( function_exists( 'is_order_received_page' ) && is_order_received_page() ) ) {
+			return;
+		}
+		$cart = WC()->cart;
+		self::push_event( 5, array( 'wc_value' => $cart ? $cart->get_total( 'edit' ) : 0 ) );
+	}
 
-		if ( is_a( $woocommerce, 'WC_Cart' ) ) {
-			$cart_item = $woocommerce->cart->get_cart_item( $cart_item_key );
+	/** Persist a minimal checkout snapshot using the WC CRUD API (HPOS safe). */
+	public static function capture_order_attribution( $order, $data = array() ) {
+		if ( ! $order instanceof WC_Order || '' !== $order->get_meta( '_rasad_attribution', true ) ) {
+			return;
+		}
+		$context = self::context();
+		if ( $context ) {
+			global $wpdb;
+			$context['wc_referrer_id'] = (int) $wpdb->get_var( $wpdb->prepare(
+				'SELECT referrer_id FROM ' . Rasad_Installer::table( 'sessions' ) . ' WHERE visitor_key=UNHEX(%s) AND last_seen>=%d ORDER BY last_seen DESC LIMIT 1',
+				$context['vk'], time() - 1800
+			) );
+			// No persistent visitor identifier on the order.
+			unset( $context['vk'] );
+		}
+		$order->update_meta_data( '_rasad_attribution', $context ? $context : array( 'excluded' => 1 ) );
+	}
 
-			if ( is_array( $cart_item ) && isset( $cart_item['data'] ) ) {
-				$value = (float) $cart_item['data']->get_price();
+	public static function track_purchase( $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof WC_Order || ! $order->is_paid() ) {
+			return;
+		}
+		$context = $order->get_meta( '_rasad_attribution', true );
+		// A webhook must never inherit its own server/browser attribution.
+		// Legacy/admin orders without a checkout snapshot are direct/unknown.
+		if ( is_array( $context ) && ! empty( $context['excluded'] ) ) {
+			return;
+		}
+		if ( ! apply_filters( 'rasad_should_track', true, array( 'e' => 6, 'wc_order_id' => (int) $order_id ) ) ) {
+			return;
+		}
+		$paid = $order->get_date_paid();
+		$hit = array_merge( is_array( $context ) ? $context : array(), array(
+			'e' => 6, 'p' => '/checkout/', 'ts' => $paid ? $paid->getTimestamp() : time(),
+			'wc_order_id' => (int) $order_id, 'wc_value' => (string) $order->get_total(),
+			'wc_currency' => (string) $order->get_currency(), 'wc_items' => array(),
+		) );
+		foreach ( $order->get_items( 'line_item' ) as $item ) {
+			$hit['wc_items'][] = array(
+				'product_id' => (int) ( $item->get_variation_id() ? $item->get_variation_id() : $item->get_product_id() ),
+				'quantity' => max( 0, (int) $item->get_quantity() ), 'value' => (string) $item->get_total(),
+			);
+		}
+		// Durable outbox + permanent order-ID ledger. INSERT IGNORE is atomic
+		// across payment, status, thank-you and concurrent webhook requests.
+		global $wpdb;
+		$wpdb->query( $wpdb->prepare(
+			'INSERT IGNORE INTO ' . Rasad_Installer::table( 'wc_orders' ) . ' (order_id,payload,processed,created_at) VALUES (%d,%s,0,%d)',
+			(int) $order_id, wp_json_encode( $hit ), time()
+		) );
+	}
+
+	public static function track_purchase_from_thankyou( $order_id ) {
+		self::track_purchase( $order_id );
+	}
+
+	/** Request context contains only the rotating key and a referrer domain. */
+	private static function context() {
+		$settings = Rasad_Settings::all();
+		$ua = isset( $_SERVER['HTTP_USER_AGENT'] ) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? trim( (string) $_SERVER['REMOTE_ADDR'] ) : '';
+		$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '/';
+		if ( ! empty( $settings['honor_dnt'] ) && isset( $_SERVER['HTTP_DNT'] ) && '1' === (string) $_SERVER['HTTP_DNT'] ) {
+			return false;
+		}
+		if ( is_preview() || is_customize_preview() || ( ! empty( $settings['filter_bots'] ) && Rasad_Collect_Visitor::is_bot( $ua ) ) || ! apply_filters( 'rasad_should_track', true, array( 'p' => $path ) ) ) {
+			return false;
+		}
+		$user = wp_get_current_user();
+		if ( $user && array_intersect( isset( $settings['excluded_roles'] ) ? (array) $settings['excluded_roles'] : array(), (array) $user->roles ) ) {
+			return false;
+		}
+		foreach ( isset( $settings['excluded_paths'] ) ? (array) $settings['excluded_paths'] : array() as $pattern ) {
+			if ( '' !== $pattern && false !== strpos( $path, $pattern ) ) {
+				return false;
 			}
 		}
-
-		self::push_event(
-			self::EVENT_ADD_TO_CART,
-			array(
-				'product_id' => (int) $product_id,
-				'value'      => $value,
-			)
-		);
+		foreach ( isset( $settings['excluded_uas'] ) ? (array) $settings['excluded_uas'] : array() as $pattern ) {
+			if ( '' !== $pattern && false !== stripos( $ua, $pattern ) ) {
+				return false;
+			}
+		}
+		foreach ( isset( $settings['excluded_ips'] ) ? (array) $settings['excluded_ips'] : array() as $pattern ) {
+			if ( self::ip_matches( $ip, $pattern ) ) {
+				return false;
+			}
+		}
+		$vk = Rasad_Collect_Visitor::key( $ip, $ua );
+		if ( '' === $vk ) {
+			return false;
+		}
+		$ref = isset( $_SERVER['HTTP_REFERER'] ) ? parse_url( (string) $_SERVER['HTTP_REFERER'], PHP_URL_HOST ) : '';
+		$ref = is_string( $ref ) ? strtolower( $ref ) : '';
+		if ( $ref === strtolower( (string) parse_url( home_url(), PHP_URL_HOST ) ) ) {
+			$ref = '';
+		}
+		return array( 'vk' => $vk, 'p' => substr( $path ? $path : '/', 0, 500 ), 'r' => $ref ? 'https://' . substr( $ref, 0, 253 ) . '/' : '' );
 	}
 
-	/**
-	 * Checkout started handler.
-	 *
-	 * @return void
-	 */
-	public static function track_checkout_start() {
-		if ( ! is_checkout() ) {
-			return;
+	/** Exact IP / CIDR exclusions without storing the address. */
+	private static function ip_matches( $ip, $pattern ) {
+		$parts = explode( '/', trim( (string) $pattern ), 2 );
+		if ( 1 === count( $parts ) ) {
+			return $ip === $parts[0];
 		}
-
-		global $woocommerce;
-
-		$value = 0.0;
-
-		if ( is_a( $woocommerce, 'WC_Cart' ) ) {
-			$value = (float) $woocommerce->cart->get_total();
+		$a = @inet_pton( $ip );
+		$b = @inet_pton( $parts[0] );
+		$bits = (int) $parts[1];
+		if ( false === $a || false === $b || strlen( $a ) !== strlen( $b ) || $bits < 0 || $bits > strlen( $a ) * 8 ) {
+			return false;
 		}
-
-		self::push_event(
-			self::EVENT_CHECKOUT_START,
-			array( 'value' => $value )
-		);
+		$bytes = intdiv( $bits, 8 );
+		$rest = $bits % 8;
+		return substr( $a, 0, $bytes ) === substr( $b, 0, $bytes ) && ( 0 === $rest || ( ord( $a[$bytes] ) & ( 255 << ( 8 - $rest ) ) ) === ( ord( $b[$bytes] ) & ( 255 << ( 8 - $rest ) ) ) );
 	}
 
-	/**
-	 * Purchase completed handler (payment_complete hook).
-	 *
-	 * @param int $order_id Order id.
-	 * @return void
-	 */
-	public static function track_purchase( $order_id ) {
-		self::track_purchase_order( $order_id );
-	}
-
-	/**
-	 * Purchase completed handler (thankyou page hook).
-	 *
-	 * @param int $order_id Order id.
-	 * @return void
-	 */
-	public static function track_purchase_from_thankyou( $order_id ) {
-		self::track_purchase_order( $order_id );
-	}
-
-	/**
-	 * Shared purchase tracking logic (deduplicated by order id within a
-	 * single request).
-	 *
-	 * @param int $order_id Order id.
-	 * @return void
-	 */
-	private static function track_purchase_order( $order_id ) {
-		static $recorded = array();
-
-		if ( isset( $recorded[ $order_id ] ) ) {
+	private static function push_event( $event, array $data ) {
+		$context = self::context();
+		if ( false === $context ) {
 			return;
 		}
-		$recorded[ $order_id ] = true;
-
-		$order = wc_get_order( $order_id );
-
-		if ( ! is_a( $order, 'WC_Order' ) ) {
-			return;
+		$hit = array_merge( $context, $data, array( 'e' => $event, 'ts' => time(), 'wc_currency' => get_woocommerce_currency() ) );
+		if ( Rasad_Plugin::buffer()->push( $hit ) ) {
+			do_action( 'rasad_after_hit', $hit );
 		}
-
-		self::push_event(
-			self::EVENT_PURCHASE,
-			array(
-				'order_id' => (int) $order_id,
-				'value'    => (float) $order->get_total(),
-			)
-		);
-	}
-
-	/**
-	 * Pushes one WooCommerce event to the buffer.
-	 *
-	 * @param int    $event  Event type constant.
-	 * @param array  $data   Event data (product_id, order_id, value, …).
-	 * @return void
-	 */
-	private static function push_event( $event, array $data = array() ) {
-		if ( ! class_exists( 'Rasad_Plugin' ) ) {
-			return;
-		}
-
-		$buffer = Rasad_Plugin::buffer();
-
-		if ( ! $buffer->is_available() ) {
-			return;
-		}
-
-		$ip   = isset( $_SERVER['REMOTE_ADDR'] ) ? trim( (string) $_SERVER['REMOTE_ADDR'] ) : '';
-		$ua   = isset( $_SERVER['HTTP_USER_AGENT'] ) ? (string) $_SERVER['HTTP_USER_AGENT'] : '';
-		$path = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '/';
-
-		// Derive a visitor key so the aggregator can match the event to a
-		// session (same algorithm as the collect hot path).
-		$vk = '';
-
-		if ( class_exists( 'Rasad_Collect_Visitor' ) ) {
-			$vk = Rasad_Collect_Visitor::key( $ip, $ua );
-		}
-
-		$hit = array(
-			'e'             => (int) $event,
-			'p'             => $path,
-			'ts'            => time(),
-			'ua'            => $ua,
-			'ip'            => $ip,
-			'vk'            => $vk,
-			'wc_product_id' => isset( $data['product_id'] ) ? (int) $data['product_id'] : 0,
-			'wc_order_id'   => isset( $data['order_id'] ) ? (int) $data['order_id'] : 0,
-			'wc_value'      => isset( $data['value'] ) ? (float) $data['value'] : 0.0,
-		);
-
-		$buffer->push( $hit );
 	}
 }

@@ -383,8 +383,10 @@ final class Rasad_Process_Aggregator {
 		$seconds = (int) apply_filters( 'rasad_aggregate_run_seconds', self::RUN_SECONDS );
 		$deadline = microtime( true ) + max( 1, $seconds );
 
+		// Purchases use a durable outbox rather than the lossy pop interface.
+		$commerce = self::drain_orders( $batch_size );
 		$buffer    = Rasad_Plugin::buffer();
-		$processed = 0;
+		$processed = $commerce;
 		$batches   = 0;
 		$error     = null;
 
@@ -422,6 +424,7 @@ final class Rasad_Process_Aggregator {
 
 		$stats = array(
 			'processed' => $processed,
+			'orders'    => $commerce,
 			'batches'   => $batches,
 			'days'      => count( self::$affected ),
 			'left'      => (int) $buffer->count(),
@@ -437,6 +440,7 @@ final class Rasad_Process_Aggregator {
 	 * @return int Accepted events (pageviews + pings).
 	 */
 	private static function process_batch( array $hits ) {
+		self::$events_seen = array(); // Per batch: never replay earlier batches.
 		$now   = time();
 		$views = array();
 		$pings = array();
@@ -479,12 +483,12 @@ final class Rasad_Process_Aggregator {
 					continue;
 				}
 
-				self::$events_seen[] = array(
-					'ts' => $ts,
-					'p'  => $path,
-					'e'  => $event,
-					'v'  => isset( $hit['wc_value'] ) ? (float) $hit['wc_value'] : 0.0,
-				);
+				// Purchase events must originate in the durable order outbox.
+				if ( 6 === $event ) {
+					continue;
+				}
+				$hit['ts'] = $ts;
+				self::$events_seen[] = $hit;
 
 				self::mark_day( $ts );
 				continue;
@@ -496,6 +500,16 @@ final class Rasad_Process_Aggregator {
 			continue;
 		}
 
+		// Cached product pages identify themselves in the ordinary browser beacon.
+		if ( 1 === $event && ! empty( $hit['wc_product_id'] ) && function_exists( 'get_post_type' ) && in_array( get_post_type( (int) $hit['wc_product_id'] ), array( 'product', 'product_variation' ), true ) ) {
+			$product_hit = $hit;
+			$product_hit['e'] = 3;
+			$product_hit['ts'] = $ts;
+			if ( empty( $product_hit['wc_currency'] ) && function_exists( 'get_woocommerce_currency' ) ) {
+				$product_hit['wc_currency'] = get_woocommerce_currency();
+			}
+			self::$events_seen[] = $product_hit;
+		}
 		$day = self::local_day( $ts );
 		self::$additive_views[ $day ] = isset( self::$additive_views[ $day ] )
 			? self::$additive_views[ $day ] + 1
@@ -515,7 +529,7 @@ final class Rasad_Process_Aggregator {
 			);
 		}
 
-		if ( empty( $views ) && empty( $pings ) ) {
+		if ( empty( $views ) && empty( $pings ) && empty( self::$events_seen ) ) {
 			return 0;
 		}
 
@@ -523,7 +537,7 @@ final class Rasad_Process_Aggregator {
 		$views = self::sort_by_ts( $views );
 		$pings = self::sort_by_ts( $pings );
 
-		self::load_open_sessions( $views, $pings );
+		self::load_open_sessions( array_merge( $views, self::$events_seen ), $pings );
 
 		$hit_rows = array();
 
@@ -576,7 +590,7 @@ final class Rasad_Process_Aggregator {
 		// Persist WooCommerce events to rsd_events (written once, never recomputed).
 		self::insert_events( self::$events_seen );
 
-		return count( $views ) + count( $pings );
+		return count( $views ) + count( $pings ) + count( self::$events_seen );
 	}
 
 	/**
@@ -715,6 +729,16 @@ final class Rasad_Process_Aggregator {
 			if ( is_array( $geo ) ) {
 				$country = isset( $geo[0] ) ? substr( (string) $geo[0], 0, 2 ) : '';
 				$city_id = isset( $geo[1] ) ? (int) $geo[1] : 0;
+				if ( $city_id && ! empty( $geo[2] ) ) {
+					static $cities = array();
+					if ( ! isset( $cities[$city_id] ) ) {
+						$wpdb->query( $wpdb->prepare(
+							'INSERT INTO ' . Rasad_Installer::table( 'cities' ) . ' (id,country,name) VALUES (%d,%s,%s) ON DUPLICATE KEY UPDATE country=VALUES(country),name=VALUES(name)',
+							$city_id, $country, function_exists( 'mb_substr' ) ? mb_substr( sanitize_text_field( $geo[2] ), 0, 191 ) : substr( sanitize_text_field( $geo[2] ), 0, 191 )
+						) );
+						$cities[$city_id] = true;
+					}
+				}
 			}
 		}
 
@@ -907,34 +931,127 @@ final class Rasad_Process_Aggregator {
 			return;
 		}
 
-		global $wpdb;
-		$table = Rasad_Installer::table( 'events' );
-
-		foreach ( array_chunk( $events, 500 ) as $chunk ) {
-			$values = array();
-			$ph     = array();
-
-			foreach ( $chunk as $event ) {
-				$day   = self::local_day( $event['ts'] );
-				// Resolve the path to a page id (product/cart/checkout pages when possible).
-				$page_id = self::resolve_page( $event['p'], '' );
-				$type  = (string) $event['e'];
-				$value = $event['v'];
-
-				$values[] = $day;
-				$values[] = $type;
-				$values[] = $page_id;
-				$values[] = $value;
-				$ph[]     = '(%s, %s, %s, %s)';
-			}
-
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
-			$sql = $wpdb->prepare(
-				'INSERT INTO ' . $table . ' (day, type, page_id, value) VALUES ' . implode( ', ', $ph ),
-				$values
-			);
-			$wpdb->query( $sql );
+		foreach ( $events as $event ) {
+			self::write_commerce_event( $event );
 		}
+	}
+
+	/** Drain durable purchases, atomically committing ledger and all summaries. */
+	private static function drain_orders( $limit ) {
+		global $wpdb;
+		$table = Rasad_Installer::table( 'wc_orders' );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT order_id,payload FROM {$table} WHERE processed=0 ORDER BY order_id LIMIT %d", $limit ) );
+		$count = 0;
+		foreach ( (array) $rows as $row ) {
+			self::commerce_query( 'START TRANSACTION' );
+			try {
+				// Row lock also protects against a runner on another web node.
+				$pending = $wpdb->get_var( $wpdb->prepare( "SELECT processed FROM {$table} WHERE order_id=%d FOR UPDATE", $row->order_id ) );
+				if ( '0' !== (string) $pending ) {
+					self::commerce_query( 'ROLLBACK' );
+					continue;
+				}
+				$hit = json_decode( $row->payload, true );
+				if ( ! is_array( $hit ) || 6 !== (int) $hit['e'] || (int) $hit['wc_order_id'] !== (int) $row->order_id ) {
+					throw new RuntimeException( 'Invalid commerce payload' );
+				}
+				self::write_commerce_event( $hit );
+				self::commerce_query( $wpdb->prepare( "UPDATE {$table} SET processed=1,payload='' WHERE order_id=%d", $row->order_id ) );
+				self::commerce_query( 'COMMIT' );
+				$count++;
+			} catch ( Throwable $error ) {
+				$wpdb->query( 'ROLLBACK' );
+				self::$ref_cache = array();
+				self::$page_cache = array();
+				throw $error;
+			}
+		}
+		return $count;
+	}
+
+	/** Checked queries prevent a ledger marker surviving a failed summary write. */
+	private static function commerce_query( $sql ) {
+		global $wpdb;
+		if ( false === $wpdb->query( $sql ) ) {
+			throw new RuntimeException( 'Commerce write failed' );
+		}
+	}
+
+	/** Store raw attribution and increment compact permanent reporting rows. */
+	private static function write_commerce_event( array $hit ) {
+		global $wpdb;
+		$event = (int) $hit['e'];
+		$ts = (int) $hit['ts'];
+		$day = self::local_day( $ts );
+		$currency = isset( $hit['wc_currency'] ) ? strtoupper( (string) $hit['wc_currency'] ) : '';
+		$currency = preg_match( '/^[A-Z]{3}$/', $currency ) ? $currency : '';
+		$product = isset( $hit['wc_product_id'] ) ? max( 0, (int) $hit['wc_product_id'] ) : 0;
+		$order = isset( $hit['wc_order_id'] ) ? max( 0, (int) $hit['wc_order_id'] ) : 0;
+		$value = isset( $hit['wc_value'] ) && is_numeric( $hit['wc_value'] ) ? (float) $hit['wc_value'] : 0;
+		$value = is_finite( $value ) ? max( -99999999999999, min( 99999999999999, $value ) ) : 0;
+		$qty = isset( $hit['wc_quantity'] ) ? max( 0, (int) $hit['wc_quantity'] ) : 0;
+		$ref = isset( $hit['wc_referrer_id'] ) ? max( 0, (int) $hit['wc_referrer_id'] ) : 0;
+		if ( ! $ref && ! empty( $hit['vk'] ) ) {
+			$ref = (int) $wpdb->get_var( $wpdb->prepare(
+				'SELECT referrer_id FROM ' . Rasad_Installer::table( 'sessions' ) . ' WHERE visitor_key=UNHEX(%s) AND started_at<=%d AND last_seen>=%d ORDER BY last_seen DESC LIMIT 1',
+				$hit['vk'], $ts, $ts - self::SESSION_GAP
+			) );
+		}
+		$campaign = Rasad_Process_Referrer::campaign( $hit );
+		if ( ! $ref && null !== $campaign ) {
+			$ref = self::resolve_referrer( $campaign['domain'], $campaign['type'], $campaign['name'] );
+		}
+		if ( ! $ref && ! empty( $hit['r'] ) ) {
+			$r = Rasad_Process_Referrer::classify( $hit['r'] );
+			$ref = self::resolve_referrer( $r['domain'], $r['type'], $r['name'] );
+		}
+		$page = self::resolve_page( isset( $hit['p'] ) ? $hit['p'] : '/checkout/', '' );
+		self::commerce_query( $wpdb->prepare(
+			'INSERT INTO ' . Rasad_Installer::table( 'events' ) . ' (day,type,page_id,value,product_id,order_id,referrer_id,quantity,currency) VALUES (%s,%s,%d,%s,%d,%d,%d,%d,%s)',
+			$day, (string) $event, $page, sprintf( '%.6F', $value ), $product, $order, $ref, $qty, $currency
+		) );
+		if ( 6 === $event ) {
+			$qty = 0;
+			foreach ( isset( $hit['wc_items'] ) ? (array) $hit['wc_items'] : array() as $item ) {
+				$qty += isset( $item['quantity'] ) ? max( 0, (int) $item['quantity'] ) : 0;
+			}
+		}
+		$metrics = array( 3 === $event ? 1 : 0, 4 === $event ? 1 : 0, 5 === $event ? 1 : 0, 6 === $event ? 1 : 0, $qty, 6 === $event ? $value : 0 );
+		self::commerce_summary( $day, 0, 0, $currency, $metrics );
+		self::commerce_summary( $day, 2, $ref, $currency, $metrics );
+		if ( 6 !== $event && $product ) {
+			self::commerce_summary( $day, 1, $product, $currency, $metrics );
+		}
+		// Coalesce repeated line items so a product's order count is distinct.
+		$items = array();
+		foreach ( isset( $hit['wc_items'] ) ? (array) $hit['wc_items'] : array() as $item ) {
+			$id = isset( $item['product_id'] ) ? max( 0, (int) $item['product_id'] ) : 0;
+			if ( ! $id ) {
+				continue;
+			}
+			if ( ! isset( $items[$id] ) ) {
+				$items[$id] = array( 0, 0.0 );
+			}
+			$items[$id][0] += max( 0, (int) $item['quantity'] );
+			$line = (float) $item['value'];
+			$items[$id][1] += is_finite( $line ) ? $line : 0;
+		}
+		foreach ( $items as $id => $item ) {
+			self::commerce_summary( $day, 1, $id, $currency, array( 0, 0, 0, 1, $item[0], $item[1] ) );
+			self::commerce_query( $wpdb->prepare(
+				'INSERT INTO ' . Rasad_Installer::table( 'events' ) . ' (day,type,page_id,value,product_id,order_id,referrer_id,quantity,currency) VALUES (%s,%s,%d,%s,%d,%d,%d,%d,%s)',
+				$day, 'purchase_item', $page, sprintf( '%.6F', $item[1] ), $id, $order, $ref, $item[0], $currency
+			) );
+		}
+	}
+
+	/** Atomic additive upsert: reports never scan raw events or orders. */
+	private static function commerce_summary( $day, $scope, $id, $currency, array $m ) {
+		global $wpdb;
+		self::commerce_query( $wpdb->prepare(
+			'INSERT INTO ' . Rasad_Installer::table( 'wc_daily' ) . ' (day,scope,object_id,currency,product_views,add_to_cart,checkouts,orders,quantity,revenue) VALUES (%s,%d,%d,%s,%d,%d,%d,%d,%d,%s) ON DUPLICATE KEY UPDATE product_views=product_views+VALUES(product_views),add_to_cart=add_to_cart+VALUES(add_to_cart),checkouts=checkouts+VALUES(checkouts),orders=orders+VALUES(orders),quantity=quantity+VALUES(quantity),revenue=revenue+VALUES(revenue)',
+			$day, $scope, $id, $currency, $m[0], $m[1], $m[2], $m[3], $m[4], sprintf( '%.6F', $m[5] )
+		) );
 	}
 
 	/*

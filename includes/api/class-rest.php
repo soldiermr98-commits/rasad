@@ -100,7 +100,7 @@ final class Rasad_Api_Rest {
 			'permission_callback' => array( __CLASS__, 'dashboard_permission' ),
 		);
 
-		foreach ( array( 'overview', 'series', 'pages', 'referrers' ) as $slug ) {
+		foreach ( array( 'overview', 'series', 'pages', 'referrers', 'audience', 'woo' ) as $slug ) {
 			$route                 = $dashboard;
 			$route['callback']     = array( __CLASS__, 'handle_' . $slug );
 			register_rest_route( self::NS, '/' . $slug, array( $route ) );
@@ -253,9 +253,9 @@ final class Rasad_Api_Rest {
 	 * @return array<string,mixed>|null
 	 */
 	private static function cache_get( array $params, $live = false ) {
-		$version = $live ? (int) get_transient( self::CACHE_VERSION ) : 0;
-		$key     = 'rasad_d_' . $version . '_' . md5( wp_json_encode( $params ) );
-		// Past ranges are immutable: no version counter, never invalidated by aggregation.
+		$version = (int) get_transient( self::CACHE_VERSION );
+		$key     = 'rasad_d2_' . $version . '_' . md5( wp_json_encode( $params ) );
+		// Backfilled historical summaries must invalidate past ranges too.
 		$value   = get_transient( $key );
 
 		return ( false === $value || ! is_array( $value ) ) ? null : $value;
@@ -270,9 +270,9 @@ final class Rasad_Api_Rest {
 	 * @return void
 	 */
 	private static function cache_set( array $params, array $data, $live ) {
-		$version   = $live ? (int) get_transient( self::CACHE_VERSION ) : 0;
-		$key       = 'rasad_d_' . $version . '_' . md5( wp_json_encode( $params ) );
-		// Past ranges are immutable: no version counter, never invalidated by aggregation.
+		$version   = (int) get_transient( self::CACHE_VERSION );
+		$key       = 'rasad_d2_' . $version . '_' . md5( wp_json_encode( $params ) );
+		// Backfilled historical summaries must invalidate past ranges too.
 		$ttl       = $live ? self::TTL_LIVE : self::TTL_PAST;
 		$data['_cached'] = time();
 
@@ -294,7 +294,7 @@ final class Rasad_Api_Rest {
 	 * @param WP_REST_Request $request Request object.
 	 * @return array<string,mixed>
 	 */
-	private static function parse_range( $request ) {
+	public static function parse_range( $request ) {
 		$param = function ( $name ) use ( $request ) {
 			$value = is_object( $request ) && method_exists( $request, 'get_param' )
 				? $request->get_param( $name )
@@ -323,7 +323,7 @@ final class Rasad_Api_Rest {
 					break;
 
 				case 'yesterday':
-					$from = $to = Rasad_Process_Aggregator::local_day( time() - 86400 );
+					$from = $to = self::shift_day( $today, -1 );
 					break;
 
 				case '30d':
@@ -353,9 +353,9 @@ final class Rasad_Api_Rest {
 			list( , $to_end )   = Rasad_Process_Aggregator::day_bounds( $to );
 		}
 
-		// Cap the span at 400 days.
-		if ( ( $to_end - $from_start ) > ( 400 * 86400 ) ) {
-			$from = Rasad_Process_Aggregator::local_day( $to_end - ( 400 * 86400 ) );
+		// Bound calendar days, rather than elapsed seconds (DST-safe).
+		if ( self::count_days( $from, $to ) > 400 ) {
+			$from = self::shift_day( $to, -399 );
 			list( $from_start ) = Rasad_Process_Aggregator::day_bounds( $from );
 		}
 
@@ -553,9 +553,9 @@ final class Rasad_Api_Rest {
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
 			$top = $wpdb->get_results( $wpdb->prepare( $base . ' GROUP BY p.id ORDER BY views DESC LIMIT %d', $range['from'], $range['to'], $limit ) );
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
-			$entries = $wpdb->get_results( $wpdb->prepare( $base . ' GROUP BY p.id ORDER BY entries DESC LIMIT %d', $range['from'], $range['to'], $limit ) );
+			$entries = $wpdb->get_results( $wpdb->prepare( $base . ' GROUP BY p.id HAVING SUM(dp.entries) > 0 ORDER BY entries DESC LIMIT %d', $range['from'], $range['to'], $limit ) );
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
-			$exits = $wpdb->get_results( $wpdb->prepare( $base . ' GROUP BY p.id ORDER BY exits DESC LIMIT %d', $range['from'], $range['to'], $limit ) );
+			$exits = $wpdb->get_results( $wpdb->prepare( $base . ' GROUP BY p.id HAVING SUM(dp.exits) > 0 ORDER BY exits DESC LIMIT %d', $range['from'], $range['to'], $limit ) );
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
 			$posts = $wpdb->get_results( $wpdb->prepare( $base . ' AND p.post_id > 0 GROUP BY p.id ORDER BY views DESC LIMIT %d', $range['from'], $range['to'], $limit ) );
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
@@ -627,6 +627,14 @@ final class Rasad_Api_Rest {
 				)
 			);
 
+			$categories = array();
+			foreach ( array( 'search_engines' => 2, 'social_networks' => 3 ) as $key => $type ) {
+				$categories[$key] = self::source_rows( $wpdb->get_results( $wpdb->prepare(
+					"SELECT r.domain,r.type,r.name,SUM(dd.views) views,SUM(dd.visitors) visitors FROM {$dim} dd INNER JOIN {$refs} r ON r.id=dd.dim_id WHERE dd.dim=1 AND dd.day >= %s AND dd.day <= %s AND r.type=%d GROUP BY r.id ORDER BY views DESC LIMIT 10",
+					$range['from'], $range['to'], $type
+				) ) );
+			}
+
 			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- identifiers from wpdb.
 			$campaigns = $wpdb->get_results(
 				$wpdb->prepare(
@@ -682,6 +690,8 @@ final class Rasad_Api_Rest {
 			$data = array(
 				'groups'   => $groups,
 				'sources'  => self::source_rows( $sources ),
+				'search_engines' => $categories['search_engines'],
+				'social_networks' => $categories['social_networks'],
 				'campaigns'=> self::source_rows( $campaigns ),
 				'terms'    => $term_rows,
 			);
@@ -692,6 +702,78 @@ final class Rasad_Api_Rest {
 			$cached = true;
 		}
 
+		return new WP_REST_Response( self::envelope( $range, $data, $cached ), 200 );
+	}
+
+	/** GET /audience: one bounded summary query for country/city/technology. */
+	public static function handle_audience( $request ) {
+		$range = self::parse_range( $request );
+		$params = array( 'audience', $range['from'], $range['to'] );
+		$data = self::cache_get( $params, $range['includes_today'] );
+		$cached = null !== $data;
+		if ( ! $cached ) {
+			global $wpdb;
+			$dim = Rasad_Installer::table( 'daily_dim' );
+			$cities = Rasad_Installer::table( 'cities' );
+			$queries = array();
+			for ( $d = 2; $d <= 6; $d++ ) {
+				$queries[] = '(' . $wpdb->prepare(
+					"SELECT dd.dim,dd.dim_id,c.name,c.country,SUM(dd.views) views,SUM(dd.visitors) visitors FROM {$dim} dd LEFT JOIN {$cities} c ON dd.dim=3 AND c.id=dd.dim_id WHERE dd.day >= %s AND dd.day <= %s AND dd.dim=%d GROUP BY dd.dim,dd.dim_id,c.name,c.country ORDER BY views DESC LIMIT 20",
+					$range['from'], $range['to'], $d
+				) . ')';
+			}
+			$rows = $wpdb->get_results( implode( ' UNION ALL ', $queries ) );
+			$data = array( 'countries' => array(), 'cities' => array(), 'browsers' => array(), 'os' => array(), 'devices' => array() );
+			$keys = array( 2 => 'countries', 3 => 'cities', 4 => 'browsers', 5 => 'os', 6 => 'devices' );
+			$labels = Rasad_Collect_Ua_Parser::labels();
+			$tech = array( 4 => $labels['browser'], 5 => $labels['os'], 6 => $labels['device'] );
+			// Country hashes are reversible from their tiny two-letter input space.
+			$countries = array();
+			for ( $a = 65; $a <= 90; $a++ ) {
+				for ( $b = 65; $b <= 90; $b++ ) {
+					$code = chr( $a ) . chr( $b );
+					$countries[ (string) Rasad_Process_Aggregator::country_dim_id( $code ) ] = $code;
+				}
+			}
+			foreach ( (array) $rows as $row ) {
+				$d = (int) $row->dim; $id = (string) $row->dim_id; $key = $keys[$d];
+				if ( count( $data[$key] ) >= 20 ) { continue; }
+				$name = __( 'نامشخص', 'rasad' );
+				if ( 2 === $d && isset( $countries[$id] ) ) { $name = $countries[$id]; }
+				if ( 3 === $d && ! empty( $row->name ) ) { $name = $row->name . ' (' . $row->country . ')'; }
+				if ( isset( $tech[$d][(int) $id] ) ) { $name = $tech[$d][(int) $id]; }
+				$data[$key][] = array( 'id' => $id, 'name' => $name, 'views' => (int) $row->views, 'visitors' => (int) $row->visitors );
+			}
+			self::cache_set( $params, $data, $range['includes_today'] );
+		}
+		return new WP_REST_Response( self::envelope( $range, $data, $cached ), 200 );
+	}
+
+	/** GET /woo: currency-separated reports read only from Woo summaries. */
+	public static function handle_woo( $request ) {
+		if ( ! class_exists( 'WooCommerce' ) ) { return new WP_Error( 'rasad_woo_inactive', __( 'فروشگاه فعال نیست.', 'rasad' ), array( 'status' => 404 ) ); }
+		$range = self::parse_range( $request );
+		$params = array( 'woo', $range['from'], $range['to'] );
+		$data = self::cache_get( $params, $range['includes_today'] );
+		$cached = null !== $data;
+		if ( ! $cached ) {
+			global $wpdb;
+			$table = Rasad_Installer::table( 'wc_daily' );
+			$refs = Rasad_Installer::table( 'referrers' );
+			$fields = 'SUM(w.product_views) product_views,SUM(w.add_to_cart) add_to_cart,SUM(w.checkouts) checkouts,SUM(w.orders) orders,SUM(w.quantity) quantity,SUM(w.revenue) revenue';
+			$data = array();
+			foreach ( array( 'daily' => 0, 'products' => 1, 'referrers' => 2 ) as $key => $scope ) {
+				$group = 0 === $scope ? 'w.day,w.currency' : 'w.object_id,w.currency';
+				$label = 0 === $scope ? 'w.day' : ( 1 === $scope ? "COALESCE(NULLIF(p.post_title,''),CAST(w.object_id AS CHAR))" : "COALESCE(NULLIF(r.name,''),r.domain,%s)" );
+				$join = 2 === $scope ? " LEFT JOIN {$refs} r ON r.id=w.object_id" : ( 1 === $scope ? " LEFT JOIN {$wpdb->posts} p ON p.ID=w.object_id" : '' );
+				$args = 2 === $scope ? array( __( 'مستقیم / نامشخص', 'rasad' ), $scope, $range['from'], $range['to'] ) : array( $scope, $range['from'], $range['to'] );
+				if ( 2 === $scope ) { $group .= ',r.name,r.domain'; }
+				if ( 1 === $scope ) { $group .= ',p.post_title'; }
+				$sql = "SELECT {$label} name,w.currency,{$fields} FROM {$table} w{$join} WHERE w.scope=%d AND w.day >= %s AND w.day <= %s GROUP BY {$group} ORDER BY " . ( 0 === $scope ? 'w.day DESC' : 'revenue DESC' ) . ( 0 === $scope ? '' : ' LIMIT 100' );
+				$data[$key] = $wpdb->get_results( $wpdb->prepare( $sql, $args ), ARRAY_A );
+			}
+			self::cache_set( $params, $data, $range['includes_today'] );
+		}
 		return new WP_REST_Response( self::envelope( $range, $data, $cached ), 200 );
 	}
 
